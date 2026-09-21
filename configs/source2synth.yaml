@@ -1,0 +1,39 @@
+paper: https://arxiv.org/abs/2409.08239v2
+random_seed: 42
+corpus:
+  id: WIKIPEDIA-SV
+  api: https://ws.spraakbanken.gu.se/ws/korp/v8
+  resource: https://spraakbanken.gu.se/resurser/wikipedia-sv
+  doi: https://doi.org/10.23695/7dz6-ek80
+  license_as_listed: CC-BY-4.0
+  hits_per_entity: 40
+  min_words: 25
+  max_words: 450
+  pairs_per_entity_per_split: 4
+  max_pairs_per_training_slice: 40
+  max_eval_pairs: 12
+  # A small, editable bootstrap vocabulary, not a representative corpus sample.
+  # Passages and all question/answer content come from Korp and DataDesigner.
+  entities:
+    - Alfred Nobel
+    - Astrid Lindgren
+    - Selma Lagerlöf
+    - Carl von Linné
+    - Marie Curie
+    - Albert Einstein
+    - Apollo 11
+    - Göta kanal
+    - Uppsala universitet
+    - Stockholms universitet
+    - Ingmar Bergman
+    - Olof Palme
+model:
+  provider: nvidia
+  id: nvidia/nemotron-3-super-120b-a12b
+  temperature: 0.7
+  max_tokens: 4096
+  max_parallel_requests: 2
+curation:
+  attempts: 3
+  # Strict normalized equality, not substring matching.
+  answer_matching: normalized_exact

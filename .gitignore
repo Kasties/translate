@@ -1,0 +1,10 @@
+.venv/
+.git-real/
+__pycache__/
+*.py[cod]
+data/raw/
+data/prepared/
+artifacts/
+.env
+.env.*
+!.env.example
