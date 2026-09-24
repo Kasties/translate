@@ -19,6 +19,7 @@ from .backend import check_backend, resolved_config
 from .nlu_sources import TASKS, prepare_nlu, schedule
 from .nlu_pipeline import generation_builder as nlu_generation_builder, curation_builder as nlu_curation_builder
 from .nlu_tasks import build_example, source_excerpt, training_record as nlu_training_record
+from .nlu_curation import CONTROLLED_TASKS, REVIEW_FIELDS, prediction_matches, review_passes
 
 
 def parser() -> argparse.ArgumentParser:
@@ -46,6 +47,8 @@ def parser() -> argparse.ArgumentParser:
     nlu_curate.add_argument("--source-run", type=Path, nargs="+",
                             help="One or more NLU generation runs; defaults to latest")
     nlu_curate.add_argument("--model", help="Override configured model id (also S2S_MODEL)")
+    nlu_curate.add_argument("--tasks", nargs="+", choices=[*TASKS, "all"], default=["all"],
+                            help="Curate only selected tasks from saved generation runs")
     nlu_curate.add_argument("--run-name", required=True)
     nlu_merge = commands.add_parser("nlu-merge", help="Merge curated NLU runs without new model calls")
     nlu_merge.add_argument("--source-run", type=Path, nargs="+", required=True)
@@ -60,6 +63,10 @@ def parser() -> argparse.ArgumentParser:
     nlu_build.add_argument("--model", help="Override configured model id (also S2S_MODEL)")
     nlu_build.add_argument("--run-name", required=True)
     nlu_build.add_argument("--resume", action="store_true", help="Continue a stopped build with the same settings")
+    nlu_build.add_argument("--refresh-inputs", action="store_true",
+                           help="With --resume, record a new source/config revision and preserve completed batches")
+    nlu_build.add_argument("--balance-tasks", action="store_true",
+                           help="Require nearly equal accepted counts per task and top up deficient tasks")
     generate = commands.add_parser("generate", help="Generate one split, retain rejects, export training messages")
     generate.add_argument("--split", choices=["slice0", "slice1", "eval"], default="slice0")
     generate.add_argument("--records", type=int, default=5)
@@ -419,12 +426,78 @@ def validate_nlu(config: dict, args) -> dict:
     builder = nlu_curation_builder(path, config)
     engine.validate(builder)
     builder.write_config(target / "curation.yaml")
+    ner_path = target / "ner_curation_schema_only.parquet"
+    pd.DataFrame([{"seed_id": "schema-only", "task": "named-entity-recognition", "target": "per",
+                   "input": "SCHEMA ONLY", "ner_text": "SCHEMA ONLY", "source_text": "SCHEMA ONLY",
+                   "expected_json": "[]", "draft_json": "{}"}]).to_parquet(ner_path, index=False)
+    ner_builder = nlu_curation_builder(ner_path, config, ner=True)
+    engine.validate(ner_builder)
+    ner_builder.write_config(target / "ner_curation.yaml")
+    ged_path = target / "ged_curation_schema_only.parquet"
+    pd.DataFrame([{"seed_id": "schema-only", "task": "grammatical-error-detection", "target": "correct",
+                   "input": "SCHEMA ONLY", "indexed_tokens": "0: SCHEMA 1: ONLY", "source_text": "SCHEMA ONLY",
+                   "expected_json": "[]", "draft_json": "{}"}]).to_parquet(ged_path, index=False)
+    ged_builder = nlu_curation_builder(ged_path, config, ged=True)
+    engine.validate(ged_builder)
+    ged_builder.write_config(target / "ged_curation.yaml")
     report = {"data_designer_version": importlib.metadata.version("data-designer"),
-              "tasks": list(TASKS), "configs_compiled": 8,
+              "tasks": list(TASKS), "configs_compiled": 10,
               "source_article_disjoint": True, "llm_calls": 0,
               "model": config["model"]["id"]}
     write_json(args.output_dir / "nlu_validation.json", report)
     return report
+
+
+def _nlu_curator_responses(rows: list[dict], run: Path, config: dict) -> list[dict]:
+    """Use compact entity predictions for NER and retry only answer mismatches."""
+    attempts = config["nlu"].get("curation_attempts", 1)
+    if type(attempts) is not int or attempts < 1:
+        raise ValueError("nlu.curation_attempts must be a positive integer")
+    returned = []
+    token_tasks = {"named-entity-recognition": "ner", "grammatical-error-detection": "ged"}
+    for group in ("other", "ner", "ged"):
+        ner, ged = group == "ner", group == "ged"
+        selected = [x for x in rows if token_tasks.get(x["task"], "other") == group]
+        if not selected:
+            continue
+        directory = run / group if ner or ged else run
+        pending = selected
+        responses = {}
+        histories = {x["id"]: [] for x in selected}
+        for attempt in range(attempts):
+            stage = directory / f"retry-{attempt}" if attempt else directory
+            stage.mkdir(parents=True, exist_ok=True)
+            flat = [{"seed_id": x["id"], "task": x["task"], "target": x["target"],
+                     "input": x["input"], "ner_text": x.get("text", ""),
+                     "indexed_tokens": json.dumps(list(enumerate(x.get("tokens", []))), ensure_ascii=False),
+                     "source_text": x["source"]["text"],
+                     "expected_json": json.dumps(x["output"], ensure_ascii=False),
+                     "draft_json": json.dumps(x["draft"], ensure_ascii=False)} for x in pending]
+            seed_path = stage / "seed.parquet"
+            pd.DataFrame(flat).to_parquet(seed_path, index=False)
+            builder = nlu_curation_builder(seed_path, config, ner=ner, ged=ged,
+                                          prediction_only=bool(attempt), attempt=attempt)
+            builder.write_config(stage / "datadesigner.yaml")
+            results = designer(stage / "dd", config).create(
+                builder, num_records=len(pending), dataset_name="nlu_curation")
+            for row in dataframe_records(results.load_dataset()):
+                seed_id = row.get("seed_id")
+                if seed_id not in histories:
+                    returned.append(row)  # The caller records unknown IDs as rejections.
+                    continue
+                histories[seed_id].append(row.get("prediction") or {})
+                previous = responses.get(seed_id, {})
+                responses[seed_id] = {**previous, **row,
+                                     "review": previous.get("review", {}) if attempt else row.get("review", {})}
+            pending = [x for x in pending if x["id"] in responses
+                       and x["task"] not in CONTROLLED_TASKS
+                       and review_passes(responses[x["id"]].get("review") or {})
+                       and not prediction_matches(x, responses[x["id"]].get("prediction") or {})]
+            if not pending:
+                break
+        returned.extend({**row, "prediction_attempts": histories[seed_id]}
+                        for seed_id, row in responses.items())
+    return returned
 
 
 def nlu_curate(config: dict, args) -> dict:
@@ -435,6 +508,9 @@ def nlu_curate(config: dict, args) -> dict:
             raise ValueError("nlu-curate requires NLU generation runs")
         rows.extend({**row, "generation_run": str(source.resolve())}
                     for row in read_jsonl(source / "accepted.jsonl"))
+    selected_tasks = getattr(args, "tasks", ["all"])
+    if "all" not in selected_tasks:
+        rows = [row for row in rows if row["task"] in selected_tasks]
     if not rows:
         raise ValueError("No generated NLU candidates to curate")
     if len({row["split"] for row in rows}) != 1:
@@ -485,16 +561,7 @@ def nlu_curate(config: dict, args) -> dict:
     require_credentials(config)
     backend = check_backend(config)
     run = new_run(args)
-    flat = [{"seed_id": x["id"], "task": x["task"], "target": x["target"], "input": x["input"],
-             "source_text": x["source"]["text"],
-             "expected_json": json.dumps(x["output"], ensure_ascii=False),
-             "draft_json": json.dumps(x["draft"], ensure_ascii=False)} for x in rows]
-    seed_path = run / "seed.parquet"
-    pd.DataFrame(flat).to_parquet(seed_path, index=False)
-    builder = nlu_curation_builder(seed_path, config)
-    builder.write_config(run / "datadesigner.yaml")
-    results = designer(run / "dd", config).create(builder, num_records=len(rows), dataset_name="nlu_curation")
-    returned = dataframe_records(results.load_dataset())
+    returned = _nlu_curator_responses(rows, run, config)
     lookup = {x["id"]: x for x in rows}
     accepted, rejected, seen = [], pre_rejected, set()
     for row in returned:
@@ -506,28 +573,18 @@ def nlu_curate(config: dict, args) -> dict:
         item = lookup[seed_id]
         pred = row.get("prediction") or {}
         review = row.get("review") or {}
-        expected, actual = item["output"], pred.get("answer")
-        if isinstance(expected, list):
-            try:
-                parsed_tags = json.loads(actual) if isinstance(actual, str) else None
-            except ValueError:
-                parsed_tags = None
-            match = parsed_tags == expected
-        elif item["task"] == "reading-comprehension":
-            match = isinstance(actual, str) and exact_answer(actual, expected)
-        else:
-            match = actual == expected
+        match = prediction_matches(item, pred)
         # The labels for controlled grammar edits and verb permutations are
         # computed from the saved edit, not inferred by the generator. A weak
         # local solver can misread these token tasks; retain its disagreement
         # for audit, while requiring the independent semantic review to pass.
-        mechanical_label = item["task"] in {
-            "linguistic-acceptability", "grammatical-error-detection"}
+        mechanical_label = item["task"] in CONTROLLED_TASKS
+        item = {**item, "prediction_attempts": row.get("prediction_attempts", [])}
         reasons = []
         if not match and not mechanical_label:
             reasons.append("independent_answer_mismatch")
         reasons.extend("review_failed_" + key for key in
-                       ("source_supported", "unambiguous", "language_valid", "task_valid")
+                       REVIEW_FIELDS
                        if review.get(key) is not True)
         if reasons:
             rejected.append({**item, "prediction": pred, "review": review, "rejection_reasons": reasons})
@@ -545,6 +602,8 @@ def nlu_curate(config: dict, args) -> dict:
                          solver_disagreements_on_controlled_tasks=sum(
                              x["solver_disagreed_with_deterministic_label"] for x in accepted),
                          requested=requested, prefilter_rejected=prefilter_count,
+                         max_solver_attempts=config["nlu"].get("curation_attempts", 1),
+                         solver_attempts=sum(len(row.get("prediction_attempts", [])) for row in returned),
                          returned=len(returned), backend=backend,
                          model=config["model"]["id"],
                          limitation="Synthetic references and model review still need human spot checks")
@@ -610,6 +669,9 @@ def _build_output(run: Path, state: dict, config: dict) -> dict:
     accepted, rejected, surplus = [], [], []
     seen_ids, seen_inputs = set(), set()
     tasks = state["tasks"]
+    quotas = {task: state["target"] // len(tasks) + (i < state["target"] % len(tasks))
+              for i, task in enumerate(tasks)} if state.get("balance_tasks") else {}
+    task_counts = Counter()
     for batch in state["batches"]:
         if not batch["curation_run"]:
             continue
@@ -632,7 +694,11 @@ def _build_output(run: Path, state: dict, config: dict) -> dict:
                 continue
             seen_ids.add(item["id"])
             seen_inputs.add(key)
-            (accepted if len(accepted) < state["target"] else surplus).append(item)
+            if len(accepted) < state["target"] and (not quotas or task_counts[item["task"]] < quotas[item["task"]]):
+                accepted.append(item)
+                task_counts[item["task"]] += 1
+            else:
+                surplus.append(item)
     write_jsonl(run / "surplus.jsonl", surplus)
     if state["split"] != "eval":
         write_jsonl(run / "train.jsonl", [nlu_training_record(row) for row in accepted])
@@ -643,6 +709,9 @@ def _build_output(run: Path, state: dict, config: dict) -> dict:
                          len(state["batches"]) * state["batch_size"],
                          curated_before_dedup=sum(batch["curated"] for batch in state["batches"]),
                          surplus=len(surplus),
+                         task_quotas=quotas,
+                         input_revisions=state.get("input_revisions", []),
+                         unique_source_articles=len({row["source"]["document_id"] for row in accepted}),
                          by_task=dict(Counter(row["task"] for row in accepted)),
                          by_label=dict(Counter(f"{row['task']}/{row['target']}" for row in accepted)),
                          model=config["model"]["id"],
@@ -653,11 +722,16 @@ def nlu_build(config: dict, args) -> dict:
     if args.target < 1 or args.batch_size < 1 or args.max_batches < 1 or args.offset < 0:
         raise ValueError("--target, --batch-size and --max-batches must be positive; --offset cannot be negative")
     tasks = list(TASKS) if "all" in args.tasks else list(dict.fromkeys(args.tasks))
+    if args.refresh_inputs and not args.resume:
+        raise ValueError("--refresh-inputs requires --resume")
     passages = args.data_dir / "nlu/passages.jsonl"
     if not passages.exists():
         raise ValueError("No NLU passages found; run prepare-nlu first")
     contract = {"target": args.target, "batch_size": args.batch_size,
                 "split": args.split, "tasks": tasks, "offset": args.offset,
+                "balance_tasks": args.balance_tasks,
+                "implementation_sha256": fingerprint({name: (ROOT / "source2synth" / name).read_text(encoding="utf-8")
+                    for name in ["__main__.py", "nlu_tasks.py", "nlu_sources.py", "nlu_pipeline.py", "nlu_curation.py"]}),
                 "config_sha256": fingerprint(config),
                 "passages_sha256": hashlib.sha256(passages.read_bytes()).hexdigest()}
     run = args.output_dir / "runs" / args.run_name
@@ -666,8 +740,26 @@ def nlu_build(config: dict, args) -> dict:
         if not state_path.exists():
             raise ValueError(f"No resumable build at {run}")
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        if any(state.get(key) != value for key, value in contract.items()):
+        state.setdefault("balance_tasks", False)
+        changed = [key for key, value in contract.items() if state.get(key) != value]
+        refreshable = {"config_sha256", "passages_sha256", "balance_tasks", "implementation_sha256"}
+        if changed and (not args.refresh_inputs or set(changed) - refreshable):
             raise ValueError("Resume settings, model configuration or source passages differ from the saved build")
+        if changed:
+            # A new revision must never reuse an orphaned child from old inputs.
+            check_backend(config)
+            schedule(config, args.data_dir, args.split, tasks, 1,
+                     args.offset + len(state["batches"]) * args.batch_size)
+            state.setdefault("input_revisions", []).append({
+                "after_batches": len(state["batches"]),
+                "previous": {key: state.get(key) for key in refreshable},
+                "current": {key: contract[key] for key in refreshable},
+                "config": config,
+            })
+            state.update(contract)
+            temp_state = run / "state.json.tmp"
+            write_json(temp_state, state)
+            temp_state.replace(state_path)
     else:
         state = {**contract, "batches": []}
         # Catch missing strata and an unavailable model before claiming a run name.
@@ -683,11 +775,14 @@ def nlu_build(config: dict, args) -> dict:
     for _ in range(args.max_batches):
         index = len(state["batches"])
         offset = args.offset + index * args.batch_size
-        prefix = f"{args.run_name}-gen-{index:04d}"
+        pending_tasks = [task for task in tasks if not report["task_quotas"]
+                         or report["by_task"].get(task, 0) < report["task_quotas"][task]]
+        revision = f"-v{len(state['input_revisions'])}" if state.get("input_revisions") else ""
+        prefix = f"{args.run_name}{revision}-gen-{index:04d}"
         generated = _complete_child_run(root, prefix, "nlu_generation")
         if generated is None:
             name = _child_name(root, prefix)
-            gen_args = argparse.Namespace(**{**vars(args), "tasks": tasks,
+            gen_args = argparse.Namespace(**{**vars(args), "tasks": pending_tasks,
                                              "records": args.batch_size,
                                              "offset": offset, "run_name": name})
             nlu_generate(config, gen_args)
@@ -696,7 +791,7 @@ def nlu_build(config: dict, args) -> dict:
         curated = None
         curated_count = 0
         if generated_report["accepted"]:
-            prefix = f"{args.run_name}-cur-{index:04d}"
+            prefix = f"{args.run_name}{revision}-cur-{index:04d}"
             curated = _complete_child_run(root, prefix, "nlu_curation")
             if curated is None:
                 name = _child_name(root, prefix)

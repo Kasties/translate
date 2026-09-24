@@ -5,10 +5,10 @@ import json
 import re
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, StrictInt, field_validator
 
 from .curation import quote_in_source
-from .common import normalize
+from .common import contains, normalize
 from .pipeline import StrictModel
 
 NLU_SYSTEM = """Du arbetar med svenska NLU-uppgifter grundade i en angiven källa.
@@ -40,6 +40,14 @@ class Entity(StrictModel):
 class NERDraft(Draft):
     text: str
     entities: list[Entity]
+
+
+class NERPrediction(StrictModel):
+    entities: list[Entity]
+
+
+class GEDPrediction(StrictModel):
+    error_indices: list[StrictInt] = Field(description="Nollbaserade index för enbart felplacerade verb; [] om inga")
 
 
 class ReadingDraft(Draft):
@@ -111,7 +119,7 @@ text ska vara samma mening. För incorrect: text får vara ett förslag;
 ett deterministiskt grammatikfel skapas från correct_text efteråt. Skriv aldrig
 ett sakfel som enda skillnad. label ska vara begärd klass.""",
     "reading-comprehension": """Skapa en svensk fråga som entydigt besvaras av källtexten. Ge ett kort
-ordagrant answer, högst 8 ord, och ett sammanhängande evidenscitat som innehåller
+ordagrant answer, högst 8 ord (16 för cause), och ett sammanhängande evidenscitat som innehåller
 svaret. Efterfråga helst begärd svarstyp. Frågan får inte avslöja svaret och ska
 gå att besvara utan omvärldskunskap. Svårighet kan innebära parafras/distraktorer.
 Använd frågeord som matchar svarstypen: person Vem; place Var/Vart;
@@ -147,6 +155,19 @@ QUESTION_STARTS = {
 
 def tokens(text: str) -> list[str]:
     return re.findall(r"\w+(?:[-’']\w+)*|[^\w\s]", text, flags=re.UNICODE)
+
+
+def canonical_source_span(source: str, value: str) -> str | None:
+    """Restore source spacing/case using whole tokens, never fuzzy paraphrases."""
+    positions = list(re.finditer(r"\w+(?:[-’']\w+)*|[^\w\s]", source, flags=re.UNICODE))
+    needle = [t.casefold() for t in tokens(value)]
+    haystack = [m.group().casefold() for m in positions]
+    if not needle:
+        return None
+    for start in range(len(haystack) - len(needle) + 1):
+        if haystack[start:start + len(needle)] == needle:
+            return source[positions[start].start():positions[start + len(needle) - 1].end()]
+    return None
 
 
 def source_excerpt(text: str, max_tokens: int = 45) -> str:
@@ -196,8 +217,10 @@ def acceptability_variant(correct: str, index: int) -> tuple[str, str]:
         words.insert(verb_index, words[verb_index])
         name = "duplicated_finite_verb"
     elif operation == 1:
-        words.insert(verb_index, "inte")
-        name = "misplaced_negation"
+        # Preverbal negation can be correct in a subordinate clause. Duplicating
+        # the finite verb avoids labeling that valid Swedish construction wrong.
+        words.insert(verb_index, words[verb_index])
+        name = "duplicated_finite_verb"
     else:
         particle_index = next((i for i, word in enumerate(words) if word.casefold() in {"i", "på", "en", "ett"}), None)
         if particle_index is None:
@@ -264,18 +287,23 @@ def build_example(seed: dict, draft: dict, topics: list[str]) -> dict:
         if draft["text"] != excerpt or draft["evidence"] != excerpt:
             normalizations.append("canonical_source_excerpt")
         draft["text"] = draft["evidence"] = excerpt
+        for entity in draft["entities"]:
+            canonical = canonical_source_span(excerpt, entity["text"])
+            if canonical is not None and canonical != entity["text"]:
+                entity["text"] = canonical
+                normalizations.append("canonical_entity_spacing_and_case")
     elif task == "reading-comprehension":
         answer = draft["answer"]
-        position = source_text.casefold().find(answer.casefold()) if answer else -1
-        if position >= 0:
-            canonical = source_text[position:position + len(answer)]
-            if canonical != answer:
-                normalizations.append("canonical_answer_case")
-            draft["answer"] = canonical
-            evidence = sentence_with_span(source_text, canonical)
-            if draft["evidence"] != evidence:
-                normalizations.append("canonical_answer_evidence")
-            draft["evidence"] = evidence
+        canonical = canonical_source_span(source_text, answer)
+        if canonical is None:
+            raise ValueError("answer_is_not_exact_source_span")
+        if canonical != answer:
+            normalizations.append("canonical_answer_spacing_and_case")
+        draft["answer"] = canonical
+        evidence = sentence_with_span(source_text, canonical)
+        if draft["evidence"] != evidence:
+            normalizations.append("canonical_answer_evidence")
+        draft["evidence"] = evidence
     elif task == "linguistic-acceptability":
         if seed["target"] == "correct":
             if draft["text"] != draft["correct_text"]:
@@ -328,12 +356,15 @@ def build_example(seed: dict, draft: dict, topics: list[str]) -> dict:
         context, answer = seed["source"]["text"], draft["answer"]
         if not answer.strip() or answer not in context or answer not in draft["evidence"]:
             raise ValueError("answer_is_not_exact_source_span")
-        if len(answer.split()) > 8 or len(draft["question"].split()) < 3:
+        max_words = 16 if seed["target"] == "cause" else 8
+        if len(answer.split()) > max_words or len(draft["question"].split()) < 3:
             raise ValueError("invalid_short_answer_or_question")
-        if answer.casefold() in draft["question"].casefold():
+        if contains(draft["question"], answer):
             raise ValueError("answer_leaked_in_question")
         if not draft["question"].strip().casefold().startswith(QUESTION_STARTS[seed["target"]]):
-            raise ValueError("reading_question_type_mismatch")
+            # Swedish permits many constructions, e.g. "På grund av vad ...?".
+            # The semantic reviewer still must confirm the requested answer type.
+            item.setdefault("normalizations", []).append("question_type_requires_semantic_review")
         if seed["target"] in {"person", "place"} and any(char.isdigit() for char in answer):
             raise ValueError("named_answer_contains_digits")
         item.update(context=context, question=draft["question"], output=answer,

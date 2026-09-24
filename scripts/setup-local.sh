@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Build llama.cpp with CUDA and convert the exact official Google checkpoint to GGUF.
+# Build llama.cpp with CUDA. Keep the original base checkpoint setup available.
 set -euo pipefail
 
 models_dir=${S2S_MODELS_DIR:-/mnt/ssd/models}
+profile=${S2S_MODEL_PROFILE:-mtp}
+if [[ "$profile" != mtp && "$profile" != base ]]; then
+    printf 'S2S_MODEL_PROFILE must be mtp or base\n' >&2
+    exit 1
+fi
 export UV_CACHE_DIR=${UV_CACHE_DIR:-${models_dir}/uv-cache}
 source_dir="${models_dir}/gemma-4-12b/hf"
 llama_dir="${models_dir}/llama.cpp"
@@ -24,6 +29,30 @@ fi
 cmake -S "$llama_dir" -B "$llama_dir/build" -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \
     -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
 cmake --build "$llama_dir/build" --target llama-server -j "${S2S_BUILD_JOBS:-8}"
+
+if [[ "$profile" == mtp ]]; then
+    # GGUFs published by llama.cpp's maintainers from Google's matching IT pair.
+    # Pin both the repository revision and LFS SHA-256; never silently update weights.
+    it_dir="${models_dir}/gemma-4-12b-it"
+    it_revision=e3e681731089efaa3f0917336944ac64752db8ba
+    it_base="https://huggingface.co/ggml-org/gemma-4-12B-it-GGUF/resolve/$it_revision"
+    mkdir -p "$it_dir"
+    files=(gemma-4-12B-it-Q8_0.gguf mtp-gemma-4-12B-it-Q8_0.gguf)
+    hashes=(abfc3044b93795f6a446fc1a04468ac2d5fc5e9c92e237f09a5b3384c5a433e4
+            16c90eb9f2b2891cc138f3d2b3bf11e23b2ced2aeab9a9d39d90fe446f2f0610)
+    for i in "${!files[@]}"; do
+        destination="$it_dir/${files[$i]}"
+        if [[ ! -s "$destination" ]]; then
+            curl -fL --retry 3 "$it_base/${files[$i]}" -o "$destination.part"
+            printf '%s  %s\n' "${hashes[$i]}" "$destination.part" | sha256sum --check
+            mv "$destination.part" "$destination"
+        else
+            printf '%s  %s\n' "${hashes[$i]}" "$destination" | sha256sum --check
+        fi
+    done
+    printf 'Ready: Gemma 4 12B IT + matching MTP assistant in %s\n' "$it_dir"
+    exit 0
+fi
 
 base="https://huggingface.co/google/gemma-4-12B/resolve/$revision"
 for name in config.json generation_config.json processor_config.json tokenizer.json tokenizer_config.json README.md; do

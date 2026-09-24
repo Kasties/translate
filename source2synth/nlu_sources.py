@@ -7,6 +7,7 @@ import re
 
 from .common import fingerprint, read_jsonl, write_json, write_jsonl
 from .korp import KorpClient, entity_cqp, passage_from_hit
+from .nlu_tasks import source_excerpt
 
 TASKS = (
     "classification", "sentiment-classification", "named-entity-recognition",
@@ -18,13 +19,19 @@ LABELS = {
     "linguistic-acceptability": ["correct", "incorrect"],
     "natural-language-inference": ["entailment", "neutral", "contradiction"],
     "grammatical-error-detection": ["correct", "incorrect"],
-    "named-entity-recognition": ["per", "org", "loc", "mixed"],
+    "named-entity-recognition": ["per", "org", "loc", "misc", "mixed"],
     "reading-comprehension": ["person", "place", "time", "quantity", "object", "cause"],
 }
 NER_CLUES = {
     "per": re.compile(r"\b(?:född|föddes|författare|politiker|skådespelare|forskare)\b", re.I),
-    "org": re.compile(r"\b(?:universitet|förening|myndighet|företag|bolag|riksdag|klubb)\b|\bAB\b", re.I),
+    "org": re.compile(r"\b(?:universitet|förening|myndighet|företag|bolag|riksdag|klubb|organisation|institut)\b|\b(?:AB|IF|FF|FC)\b", re.I),
     "loc": re.compile(r"\b(?:sjö|stad|ort|kommun|landskap|län|flod|berg|region)\b", re.I),
+    "misc": re.compile(r"\b(?:roman|film|festival|bok|olympiska|mästerskap|album)\b", re.I),
+}
+READING_CLUES = {
+    "time": re.compile(r"\b\d{4}\b|\b(?:januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\b", re.I),
+    "quantity": re.compile(r"\b\d+\s+(?:miljoner|miljarder|invånare|meter|kilometer|procent|personer|år)\b", re.I),
+    "cause": re.compile(r"\b(?:eftersom|därför|orsak|på grund av|ledde till|för att)\b", re.I),
 }
 
 
@@ -102,18 +109,32 @@ def schedule(config: dict, data_dir: Path, split: str, tasks: list[str], count: 
     for task in tasks:
         task_index = TASKS.index(task)
         labels = topics if task == "classification" else LABELS[task]
-        for index in range(offset, offset + count):
+        # NER always uses a fixed excerpt, so revisiting a source creates the
+        # same training input. Replay its allocation to keep chunked schedules
+        # equivalent while using unseen eligible excerpts before repeating one.
+        used_sources = set()
+        indices = range(offset + count) if task == "named-entity-recognition" else range(offset, offset + count)
+        for index in indices:
             target = labels[index % len(labels)]
             # Label varies faster than topic: every topic sees every label over a full block.
             topic = target if task == "classification" else topics[(index // len(labels) + task_index) % len(topics)]
             pool = groups[topic]
             if task == "named-entity-recognition" and target in NER_CLUES:
                 clue = NER_CLUES[target]
-                pool = ([row for row in pool if clue.search(row["text"][:450])]
-                        or [row for row in all_sources if clue.search(row["text"][:450])]
+                pool = ([row for row in pool if clue.search(source_excerpt(row["text"]))]
+                        or [row for row in all_sources if clue.search(source_excerpt(row["text"]))]
                         or pool)
+            elif task == "reading-comprehension" and target in READING_CLUES:
+                clue = READING_CLUES[target]
+                pool = ([row for row in pool if clue.search(row["text"])]
+                        or [row for row in all_sources if clue.search(row["text"])] or pool)
             cycle = index // (len(topics) if task == "classification" else len(labels) * len(topics))
+            if task == "named-entity-recognition":
+                pool = [row for row in pool if row["id"] not in used_sources] or pool
             source = pool[(cycle * len(labels) + index % len(labels) + task_index) % len(pool)]
+            used_sources.add(source["id"])
+            if index < offset:
+                continue
             style = nlu["styles"][(index // len(labels) + index % len(labels)) % len(nlu["styles"])]
             difficulty = nlu["difficulties"][(index // len(labels) + index % len(labels)) % len(nlu["difficulties"])]
             result.append({"seed_id": fingerprint([source["id"], task, index, style, difficulty])[:24],

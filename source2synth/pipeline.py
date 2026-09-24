@@ -88,8 +88,13 @@ def builder_for(seed: Path, config: dict, model_id: str | None = None,
 
 
 def parse_json_response(text: str, schema: type[BaseModel]) -> dict:
-    """Accept plain JSON or one JSON fence, but never repair invalid contents."""
+    """Accept plain JSON or known transport wrappers, never repair JSON contents."""
     text = text.strip()
+    # Gemma 4 IT's native template can emit a thought channel marker even when
+    # thinking is disabled. The server's response still contains one JSON object;
+    # remove only that exact channel wrapper before strict JSON/schema validation.
+    if "<channel|>" in text:
+        text = text.rsplit("<channel|>", 1)[1].strip()
     fenced = re.fullmatch(r"```(?:json)?\s*\n?(.*?)\n?```", text, flags=re.DOTALL)
     if fenced:
         text = fenced.group(1)
