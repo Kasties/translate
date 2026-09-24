@@ -4,7 +4,9 @@ __pycache__/
 *.py[cod]
 data/raw/
 data/prepared/
+data/nlu/
 artifacts/
 .env
 .env.*
 !.env.example
+*.part

@@ -28,12 +28,33 @@ corpus:
     - Ingmar Bergman
     - Olof Palme
 model:
-  provider: nvidia
-  id: nvidia/nemotron-3-super-120b-a12b
+  provider: local
+  id: google/gemma-4-12B
+  endpoint: http://127.0.0.1:8080/v1
   temperature: 0.7
-  max_tokens: 4096
-  max_parallel_requests: 2
+  max_tokens: 2048
+  max_parallel_requests: 1
+  timeout: 180
+  extra_body:
+    response_format: {type: json_object}
 curation:
   attempts: 3
   # Strict normalized equality, not substring matching.
   answer_matching: normalized_exact
+nlu:
+  hits_per_query: 24
+  max_passages_per_topic_per_split: 30
+  generation_max_tokens: 512
+  curation_max_tokens: 256
+  curation_temperature: 0.1
+  # Candidate quotas; acceptance is reported separately, never manufactured.
+  records_per_task: 12
+  styles: [saklig, lättläst, nyhetsnotis, förklarande]
+  difficulties: [enkel, medel, svår]
+  topics:
+    kultur: [bibliotek, musik, teater]
+    vetenskap: [forskning, fysik, universitet]
+    samhälle: [kommun, riksdagen, utbildning]
+    natur: [skog, sjö, klimat]
+    teknik: [dator, järnväg, energi]
+    idrott: [fotboll, olympiska, simning]
