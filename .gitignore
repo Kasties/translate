@@ -4,7 +4,27 @@ __pycache__/
 *.py[cod]
 data/raw/
 data/prepared/
+data/nlu/
 artifacts/
+# Share the source manifest and passages used by the checked-in synthetic set.
+!data/
+data/*
+!data/nlu/
+!data/nlu/**
+# Share the final export and provenance, but keep intermediate runs and logs local.
+!artifacts/
+artifacts/*
+!artifacts/source2synth/
+artifacts/source2synth/*
+!artifacts/source2synth/runs/
+artifacts/source2synth/runs/*
+!artifacts/source2synth/runs/nlu-1000/
+artifacts/source2synth/runs/nlu-1000/*
+!artifacts/source2synth/runs/nlu-1000/train.jsonl
+!artifacts/source2synth/runs/nlu-1000/accepted.jsonl
+!artifacts/source2synth/runs/nlu-1000/rejected.jsonl
+!artifacts/source2synth/runs/nlu-1000/report.json
 .env
 .env.*
 !.env.example
+*.part
