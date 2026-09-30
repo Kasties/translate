@@ -28,3 +28,6 @@ artifacts/source2synth/runs/nlu-1000/*
 .env.*
 !.env.example
 *.part
+# Baseline datasets (downloaded / generated locally)
+baselines/*/data/raw/
+baselines/*/data/processed/
