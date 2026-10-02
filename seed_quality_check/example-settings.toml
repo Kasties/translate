@@ -1,0 +1,139 @@
+%%writefile example-settings.toml
+[model]
+vllm.model = "Qwen/Qwen2-72B-Instruct-AWQ"
+vllm.host_url = "http://localhost:8000/v1/"
+vllm.api_key = "sk-wowow-wowow"
+vllm.use = false 
+vllm.use_qc = false
+
+groq.api_key = ""
+groq.model = "llama3-70b-8192"
+groq.use = false 
+groq.use_qc = false
+
+ollama.model = 'qwen2.5:32b'
+ollama.host_url = "http://localhost:11434"
+ollama.use = true 
+ollama.use_qc = true
+
+anthropic.api_key = 'YOUR_API_KEY'
+anthropic.model = 'claude-3-sonnet-20240229'
+anthropic.use = false 
+anthropic.use_qc = false
+
+openai.api_key = 'YOUR_API_KEY'
+openai.model = 'gemini-3.5-flash'
+openai.use = false 
+openai.use_qc = false
+
+[general]
+output_dir = 'output-swedish'
+language = 'sv' 
+wiki_lang = 'sv' 
+use_wiki = true 
+
+num_topics = 1000
+topic_generation_temperature = 0.85
+topic_generation_max_tokens = 400
+custom_system_prompt = "Se till att alla dina svar och utdata, förutom fördefinierade formatnycklar, är på svenska. Svara alltid på svenska även när indata är på andra språk." 
+
+llm_task_types = [
+    'question_answering',
+    'multiple_choice',
+    'summarization',
+    'translation',
+    'brainstorming',
+    'conversation',
+    'jokes',
+    'debate'
+]
+
+response_filters = [
+  'my programming',
+  'openai',
+  'language model',
+  'large language',
+  'as an? (ai|generative language|gpt|bot)',
+  'illegal and dangerous',
+  "i do(n't| not) (possess|have|exhibit) (personal|consciousness|subjective)",
+  'personal (feelings|thoughts|emotions|desires|experiences|goals|objective|belief)',
+  "(can('t| ?not)|w(on't|will not)|unable.?) (\\w+\\s)+(with (that|your)|your \\w+|provide)",
+  'my limitations',
+  'the limitations of my',
+  'my abilities',
+  'violates my',
+  "i (can('t| ?not)|w(on't|will not)|am (not |un)able.?).{0,30}(you are|you're|your )",
+  'please note that',
+  'flesch'
+]
+
+[culture]
+num_topics = 2000
+enabled = true
+prompt = 'Du är en infödd svensk med expertkunskaper om svensk kultur, historia, språk och seder. Se till att allt du agerar, gör, säger och genererar stämmer överens med detta.'
+
+[tasks]
+num_threads_per_task = 5
+context_styles = [ 
+    "news article",
+    "blog post",
+    "text messages",
+    "fictional short story",
+    "video transcript",
+    "song",
+    "poem",
+    "scientific study",
+    "medical report",
+    "social media post with replies",
+    "email",
+    "tweet",
+    "how-to article"
+]
+
+    [tasks.question_answering]
+    count = 25000
+    batch_size = 10
+    temperature = 0.3
+    max_tokens = 4000
+
+    [tasks.multiple_choice]
+    count = 25000
+    batch_size = 10
+    temperature = 0.4
+    max_tokens = 4000
+
+    [tasks.summarization]
+    count = 25000
+    batch_size = 10
+    summary_styles = [
+        "bullet point",
+        "paragraph",
+        "numbered list",
+    ]
+    temperature = 0.35
+    max_tokens = 4000
+
+    [tasks.brainstorming]
+    count = 25000
+    batch_size = 10
+    temperature = 0.8
+    max_tokens = 4000
+
+    [tasks.conversation]
+    count = 25000
+    batch_size = 10
+    temperature = 0.8
+    max_tokens = 4000
+
+[cleaning] 
+remove_duplicates = true
+remove_empty_instructions = true
+remove_empty_outputs = true
+
+use_cosine_filter = true
+cosine_similarity_threshold = 0.95
+embed_model = "BAAI/bge-m3"
+
+[quality_control]
+temperature = 0.8
+max_tokens = 1500
