@@ -1,0 +1,5 @@
+# The reference run: one small instruction-tuned model through both suites, to check that the
+# evaluation works on a new machine. Run it from this folder (see README.md, "Reference run").
+- reference: HuggingFaceTB/SmolLM2-135M-Instruct
+  revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+  model_family: HuggingFaceTB/SmolLM2-135M-Instruct
