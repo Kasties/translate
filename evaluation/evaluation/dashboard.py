@@ -73,7 +73,7 @@ shown["label"] = shown["reference"].where(shown["run"] == "full", shown["referen
 shown = shown[shown["timestamp"] == shown.groupby(["label", "dataset"])["timestamp"].transform("max")]
 conditions = CONDITION_ORDER + sorted(set(shown["condition"]) - set(CONDITION_ORDER))
 shown["condition_rank"] = shown["condition"].map(conditions.index)
-shown = shown.sort_values(["model_family", "condition_rank", "random_seed", "label"])
+shown = shown.sort_values(["model_family", "condition_rank", "label"])
 for bound in ["value", "lower", "upper"]:
     shown[f"{bound} (percent)"] = 100 * shown[bound]
 
@@ -89,7 +89,7 @@ for index, ((dataset, subset, metric), group) in enumerate(groups):
     # Horizontal bars, so long checkpoint references stay readable.
     bars = alt.Chart(group, title=title).encode(
         y=alt.Y("label:N", sort=list(group["label"]), title=None, axis=alt.Axis(labelLimit=320)),
-        tooltip=["label", "model_family", "condition", "random_seed", "value (percent)", "lower (percent)",
+        tooltip=["label", "model_family", "condition", "value (percent)", "lower (percent)",
                  "upper (percent)", "items", "gpu"],
     )  # fmt: skip
     present = [condition for condition in conditions if condition in set(group["condition"])]
@@ -122,7 +122,7 @@ for index, ((dataset, subset, metric), group) in enumerate(groups):
 st.caption("The error bar on each bar is its 95% confidence interval, when the result record has one.")
 st.dataframe(
     shown[
-        ["label", "model_family", "condition", "random_seed", "suite", "dataset", "subset", "metric",
+        ["label", "model_family", "condition", "suite", "dataset", "subset", "metric",
          "value (percent)", "lower (percent)", "upper (percent)", "items", "run", "gpu", "timestamp"]
     ].rename(columns={"label": "checkpoint"}),  # fmt: skip
     column_config={column: st.column_config.NumberColumn(format="%.2f") for column in

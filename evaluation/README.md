@@ -19,18 +19,18 @@ uv run hf auth login
 
 The login needs a Hugging Face token. EuroEval downloads its datasets with it.
 
-## Reference run
+## Check a new machine
 
-The reference run checks that the evaluation works on a new machine. It runs one small instruction-tuned model, SmolLM2-135M-Instruct, through both suites with the default datasets.
+`example_run.yaml` is an example run config. Run as it is, it checks that the evaluation works. It puts two small models through the default datasets: SmolLM2-135M, a base model, through the minimal-pair suite, and SmolLM2-135M-Instruct through both suites.
 
 ```bash
-uv run python -m evaluation run --config reference_run.yaml
+uv run python -m evaluation run --config example_run.yaml
 uv run python -m evaluation table --include-quick-runs
 ```
 
-On a Kaggle T4 the run took 13 minutes. The minimal-pair suite took 4 of them. The EuroEval suite took 9, mostly to install EuroEval and vLLM, which happens once per machine.
+On a Kaggle T4, SmolLM2-135M-Instruct took 13 minutes. The minimal-pair suite took 4 of them. The EuroEval suite took 9, mostly to install EuroEval and vLLM, which happens once per machine. The base model adds about 4 minutes.
 
-The run should end without an error, and the results table should have one row. The T4 gave these values:
+The run should end without an error, and the results table should have two rows. On the T4, SmolLM2-135M-Instruct gave these values:
 
 | Column | Value |
 |---|---|
@@ -42,7 +42,7 @@ The run should end without an error, and the results table should have one row. 
 
 Another GPU, or the CPU, changes the minimal-pair values by a few pairs. A model this small answers most EuroEval tasks at chance level, so an MCC near 0 is normal.
 
-On a machine without a GPU, add `suites: [minimal-pair]` to a copy of `reference_run.yaml`. A laptop CPU then needs about 30 minutes, 25 of them for DaLAJ.
+On a machine without a GPU, set `suites: [minimal-pair]` in a copy of `example_run.yaml`. A laptop CPU then needs about 30 minutes per model, 25 of them for DaLAJ.
 
 ## Evaluating your checkpoints
 
@@ -54,7 +54,7 @@ On a GPU without native bf16, such as a T4, store the checkpoint in bf16. EuroEv
 
 ### Run config
 
-A run config is a YAML file that describes a whole run. Only `models` is required. Every other field has a default, so a short file runs both suites with the default datasets. `reference_run.yaml` is an example.
+A run config is a YAML file that describes a whole run. `example_run.yaml` writes out every field. Copy it to start your own. Only `models` is required, and every other field has the default shown in the table below. A short run config can rely on those defaults:
 
 ```yaml
 upload: true
@@ -67,7 +67,6 @@ models:
     model_family: Qwen/Qwen3.5-2B-Base
     condition: seed-grounded
     training_method: full
-    random_seed: 42
 ```
 
 ```bash
@@ -91,7 +90,7 @@ The fields of an entry under `models` describe one checkpoint:
 |---|---|
 | `reference` | the Hugging Face repo id or a local folder. Required |
 | `revision` | the commit hash, in quotes. Hugging Face repos only |
-| `model_family`, `condition`, `training_method`, `random_seed` | labels for the results table: the base model, seed-grounded, translated, MAGPIE or control, full or lora, and the seed |
+| `model_family`, `condition`, `training_method` | labels for the results table: the base model, seed-grounded, translated, MAGPIE or control, and full or lora |
 | `suites` | a limit for this checkpoint only. A base model gets `[minimal-pair]`, because EuroEval prompts base models differently and skips some tasks for them |
 
 The command evaluates the checkpoints one after another, each as a run of its own.

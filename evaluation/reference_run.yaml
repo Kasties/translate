@@ -1,8 +1,0 @@
-# The reference run: SmolLM2-135M-Instruct through both suites with the default datasets.
-# Run it from this folder with
-#   uv run python -m evaluation run --config reference_run.yaml
-# README.md, "Run config", explains every field you can add.
-
-models:
-  - reference: HuggingFaceTB/SmolLM2-135M-Instruct
-    revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"

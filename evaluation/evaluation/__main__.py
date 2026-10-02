@@ -1,6 +1,6 @@
 """Evaluate checkpoints and build the results table.
 
-uv run python -m evaluation run --config reference_run.yaml [--results-dir DIR]
+uv run python -m evaluation run --config example_run.yaml [--results-dir DIR]
 uv run python -m evaluation run --model HuggingFaceTB/SmolLM2-135M [--revision REVISION]
     [--suite minimal-pair euroeval] [--minimal-pair-dataset Idioms ...] [--euroeval-dataset scala-sv ...]
     [--full-run] [--no-upload] [--results-dir DIR]
@@ -67,7 +67,7 @@ def main(argv=None):
     config_or_model.add_argument(
         "--config",
         type=Path,
-        help="a run config, such as reference_run.yaml: the checkpoints, suites, datasets, quick or full run, and upload",
+        help="a run config, such as example_run.yaml: the checkpoints, suites, datasets, quick or full run, and upload",
     )
     config_or_model.add_argument("--model", help="Hugging Face repo id or local path of one checkpoint")
     run.add_argument("--revision", help="with --model: branch, tag or commit hash of the Hugging Face repo")

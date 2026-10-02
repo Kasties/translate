@@ -24,7 +24,7 @@ PAIR_SCORES = "pair_scores.jsonl"
 MATCH_KEYS = ["checkpoint", "revision", "suite", "dataset", "timestamp"]
 # The fields of a model list entry. All but suites tag the checkpoint's result records; suites, when
 # given, limits the suites the checkpoint runs.
-MODEL_LIST_FIELDS = ["reference", "revision", "model_family", "condition", "training_method", "random_seed", "suites"]
+MODEL_LIST_FIELDS = ["reference", "revision", "model_family", "condition", "training_method", "suites"]
 SUITES = ["minimal-pair", "euroeval"]
 
 
@@ -92,7 +92,6 @@ def checkpoint_from_metadata(reference, revision=None):
         "model_family": metadata.get("base_model"),
         "condition": metadata.get("condition"),
         "training_method": metadata.get("training_method"),
-        "random_seed": metadata.get("random_seed"),
     }
 
 
@@ -113,7 +112,6 @@ def append_results(run_dir, checkpoint, suite, dataset, results, pair_scores, fu
             "model_family": checkpoint["model_family"],
             "condition": checkpoint["condition"],
             "training_method": checkpoint["training_method"],
-            "random_seed": checkpoint["random_seed"],
             **result,
             "run": "full" if full_run else "quick",
             "gpu": torch.cuda.get_device_name() if torch.cuda.is_available() else "cpu",
@@ -135,7 +133,6 @@ def append_jsonl(path, rows):
 ROW_LABELS = [
     ("model_family", "Model family"),
     ("condition", "Condition"),
-    ("random_seed", "Random seed"),
     ("checkpoint", "Checkpoint"),
 ]
 
@@ -173,7 +170,7 @@ def write_results_table(results_dir, include_quick_runs=False):
         column = f"{record['dataset']}{subset} {record['metric']}"
         columns[column] = None
         records_by_row.setdefault(row, {})[column] = record
-    # Group the rows by model family, then condition and random seed; empty labels first.
+    # Group the rows by model family, then condition; empty labels first.
     rows = sorted(records_by_row, key=lambda row: [(value is not None, value) for value in row])
     cells = [[records_by_row[row].get(column) for column in columns] for row in rows]
 
