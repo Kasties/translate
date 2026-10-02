@@ -126,12 +126,15 @@ def append_jsonl(path, rows):
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-# The columns that label a checkpoint's row in the results table: (result record field, Markdown header).
-ROW_LABELS = [
-    ("model_family", "Model family"),
-    ("training_data", "Training data"),
-    ("checkpoint", "Checkpoint"),
-]
+# The metric the results table shows for a minimal-pair dataset. A EuroEval dataset shows the first metric EuroEval
+# lists, its main one. results_table.csv keeps every metric.
+REPORTED_MINIMAL_PAIR_METRIC = "preference accuracy (mean)"
+METRIC_NAMES = {"mcc": "MCC", "macro_f1": "macro-F1", "chr_f3pp": "chrF3++", "chr_f4pp": "chrF4++", "f1": "F1", "em": "exact match"}
+# The columns of results_table.csv, one row per result record.
+CSV_FIELDS = [
+    "checkpoint", "revision", "model_family", "training_data", "training_method", "run", "suite", "dataset", "subset",
+    "metric", "value", "lower", "upper", "items", "gpu", "timestamp",
+]  # fmt: skip
 
 
 def read_runs(results_dir, name):
@@ -145,54 +148,86 @@ def read_runs(results_dir, name):
 
 
 def write_results_table(results_dir, include_quick_runs=False):
-    """Pivot the result records of every run in results_dir/runs into one row per checkpoint and one
-    column per dataset, subset and metric, write it as results_table.md (percent, with the confidence interval) and
-    results_table.csv (the values as stored), and return the Markdown. A checkpoint run more than
-    once shows its latest value. Quick runs are left out unless include_quick_runs is set; then
-    each run gets its own row.
-    """
-    labels = ROW_LABELS + [("run", "Run")] if include_quick_runs else ROW_LABELS
+    """Build the results table from the result records of every run in results_dir/runs. It has one row per dataset
+    and subset, with the metric a report uses, and one column per checkpoint. Write it to results_table.md, in percent
+    with the 95% interval, and write every latest result record to results_table.csv. Return the table as plain text
+    for the terminal. A checkpoint run more than once shows its latest value. Quick runs are left out unless
+    include_quick_runs is set; then a checkpoint's quick runs get a column of their own."""
     records = read_runs(results_dir, RESULT_RECORDS)
     if not records:
         raise FileNotFoundError(f"No result records in {results_dir / 'runs'}; run the download command first")
-    records_by_row, columns = {}, {}
+    latest = {}
     # Oldest first, so a later run replaces an earlier one. Timestamps are UTC, so they sort as text.
     for record in sorted(records, key=lambda record: record["timestamp"]):
-        if record["run"] == "quick" and not include_quick_runs:
-            continue
-        checkpoint = f"{record['checkpoint']}@{record['revision']}" if record["revision"] else record["checkpoint"]
-        # Runs from before 2026-10-02 have no training_data field.
-        row = tuple(checkpoint if field == "checkpoint" else record.get(field) for field, _ in labels)
-        # A EuroEval dataset has no subsets.
-        subset = f" ({record['subset']})" if record["subset"] else ""
-        column = f"{record['dataset']}{subset} {record['metric']}"
-        columns[column] = None
-        records_by_row.setdefault(row, {})[column] = record
-    # Group the rows by model family, then training data; empty labels first.
-    rows = sorted(records_by_row, key=lambda row: [(value is not None, value) for value in row])
-    cells = [[records_by_row[row].get(column) for column in columns] for row in rows]
-
-    def percent(record):
-        if record is None:
-            return ""
-        if record["lower"] is None:
-            return f"{100 * record['value']:.2f}"
-        return f"{100 * record['value']:.2f} [{100 * record['lower']:.2f}, {100 * record['upper']:.2f}]"
-
-    table_rows = [
-        [header for _, header in labels] + list(columns),
-        ["---"] * (len(labels) + len(columns)),
-        *(
-            ["" if value is None else str(value) for value in row] + [percent(record) for record in records]
-            for row, records in zip(rows, cells)
-        ),
-    ]
-    markdown = "".join(f"| {' | '.join(table_row)} |\n" for table_row in table_rows)
-    (results_dir / "results_table.md").write_text(markdown)
+        if record["run"] == "full" or include_quick_runs:
+            key = (record["checkpoint"], record["revision"], record["run"], record["dataset"], record["subset"])
+            latest[(*key, record["metric"])] = record
+    if not latest:
+        return f"No full runs yet. Add --include-quick-runs to see the {len(records)} quick-run result records.\n"
 
     with (results_dir / "results_table.csv").open("w", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow([field for field, _ in labels] + list(columns))
-        for row, records in zip(rows, cells):
-            writer.writerow([*row, *(record and record["value"] for record in records)])
-    return markdown
+        writer.writerow(CSV_FIELDS)
+        # Runs from before 2026-10-02 have no training_data field.
+        writer.writerows([record.get(field) for field in CSV_FIELDS] for record in latest.values())
+
+    rows, euroeval_metrics = {}, {}
+    for record in latest.values():
+        if record["suite"] == "minimal-pair":
+            if record["metric"] != REPORTED_MINIMAL_PAIR_METRIC:
+                continue
+            row = f"{record['dataset']} ({record['subset']})"
+        else:
+            metric = euroeval_metrics.setdefault(record["dataset"], record["metric"])
+            if record["metric"] != metric:
+                continue
+            row = f"{record['dataset']} {METRIC_NAMES.get(metric, metric)}"
+        rows.setdefault(row, {})[(record["checkpoint"], record["revision"], record["run"])] = record
+
+    examples = {column: record for cells in rows.values() for column, record in cells.items()}
+    # Group the columns by model family, then training data; empty labels first.
+    columns = sorted(
+        examples,
+        key=lambda column: (
+            examples[column]["model_family"] or "", examples[column].get("training_data") or "", column[0], column[2]
+        ),
+    )
+    # A column is named after its repo or folder, plus the revision when two checkpoints share that name.
+    checkpoints = {column[:2] for column in columns}
+    short = {checkpoint: checkpoint[0].rstrip("/").split("/")[-1] for checkpoint in checkpoints}
+    headers = [
+        f"{short[column[:2]]}@{column[1][:7]}"
+        if column[1] and list(short.values()).count(short[column[:2]]) > 1
+        else short[column[:2]]
+        for column in columns
+    ]
+    label_rows = [
+        ["Model family", *((examples[column]["model_family"] or "").split("/")[-1] for column in columns)],
+        ["Training data", *((examples[column].get("training_data") or "") for column in columns)],
+    ]
+    if include_quick_runs:
+        label_rows.append(["Run", *(column[2] for column in columns)])
+
+    def cell(record, interval):
+        if record is None:
+            return ""
+        if not interval or record["lower"] is None:
+            return f"{100 * record['value']:.1f}"
+        return f"{100 * record['value']:.1f} [{100 * record['lower']:.1f}, {100 * record['upper']:.1f}]"
+
+    def table(interval):
+        body = [[row, *(cell(cells.get(column), interval) for column in columns)] for row, cells in rows.items()]
+        return [["Dataset", *headers], *label_rows, *body]
+
+    markdown = table(interval=True)
+    lines = [f"| {' | '.join(markdown[0])} |", f"| {' | '.join(['---'] * len(markdown[0]))} |"]
+    lines += [f"| {' | '.join(line)} |" for line in markdown[1:]]
+    (results_dir / "results_table.md").write_text("\n".join(lines) + "\n")
+
+    text = table(interval=False)
+    widths = [max(len(line[index]) for line in text) for index in range(len(text[0]))]
+    return "".join(
+        "  ".join([line[0].ljust(widths[0]), *(value.rjust(width) for value, width in zip(line[1:], widths[1:]))])
+        .rstrip() + "\n"
+        for line in text
+    ) + f"\nWrote {results_dir / 'results_table.md'} (with 95% intervals) and {results_dir / 'results_table.csv'} (every metric).\n"

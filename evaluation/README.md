@@ -145,11 +145,17 @@ Each run writes a folder of its own, `results/runs/<run>/`, named after the UTC 
 - `euroeval_benchmark_results.jsonl` holds EuroEval's own output for a run of the EuroEval suite.
 
 ```bash
-uv run python -m evaluation table                          # full runs only, add --include-quick-runs for all
+uv run python -m evaluation table                          # full runs only
+uv run python -m evaluation table --include-quick-runs     # quick runs too
 uv run python -m streamlit run evaluation/dashboard.py     # charts per dataset, and the pairs two checkpoints disagree on
 ```
 
-The table has one row per checkpoint and one column per dataset, subset and metric. The command prints it and writes `results/results_table.md`, with percentages and 95% intervals, and `results/results_table.csv`, with fractions. A checkpoint that ran more than once shows its latest run.
+The table shows full runs only. Every run is a quick run unless its run config sets `full_run: true`, so add `--include-quick-runs` to see test runs. Without it, a table with only quick runs prints "No full runs yet".
+
+The table has one row per dataset and one column per checkpoint. Each cell is the number a report uses: preference accuracy (mean) for a minimal-pair dataset, and the main EuroEval metric for a EuroEval dataset. A checkpoint that ran more than once shows its latest run. The command prints the table and writes two files:
+
+- `results/results_table.md` is the same table in percent with 95% intervals, ready for a report.
+- `results/results_table.csv` has one row per result record, with every metric, the full checkpoint reference and revision, and the GPU. Use it for your own analysis.
 
 ## Sharing results
 

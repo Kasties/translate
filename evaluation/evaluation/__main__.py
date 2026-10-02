@@ -97,7 +97,7 @@ def main(argv=None):
 
     table = commands.add_parser("table", help="write the result records as a results table in Markdown and CSV")
     table.add_argument(
-        "--include-quick-runs", action="store_true", help="add quick-run rows; default is full runs only"
+        "--include-quick-runs", action="store_true", help="show quick runs too; without it the table shows full runs only"
     )
 
     for command in (run, download, table):
