@@ -1,6 +1,7 @@
 """Evaluate checkpoints and build the results table.
 
-uv run python -m evaluation run (--model-list models.yaml | --model HuggingFaceTB/SmolLM2-135M [--revision REVISION])
+uv run python -m evaluation run --config reference_run.yaml [--results-dir DIR]
+uv run python -m evaluation run --model HuggingFaceTB/SmolLM2-135M [--revision REVISION]
     [--suite minimal-pair euroeval] [--minimal-pair-dataset Idioms ...] [--euroeval-dataset scala-sv ...]
     [--full-run] [--no-upload] [--results-dir DIR]
 uv run python -m evaluation download [--results-dir DIR]
@@ -10,7 +11,9 @@ uv run python -m evaluation table [--include-quick-runs] [--results-dir DIR]
 import argparse
 from pathlib import Path
 
-from evaluation.euroeval_runner import EUROEVAL_DATASETS, run_euroeval
+import yaml
+
+from evaluation.euroeval_runner import EUROEVAL_DATASETS, EUROEVAL_SWEDISH_DATASETS, run_euroeval
 from evaluation.minimal_pairs import MINIMAL_PAIR_DATASETS, evaluate, load_model
 from evaluation.results import (
     SUITES,
@@ -25,6 +28,34 @@ from evaluation.results import (
 )
 
 
+# The fields of a run config. models holds model list entries; the others choose what every checkpoint runs.
+RUN_CONFIG_FIELDS = ["suites", "minimal_pair_datasets", "euroeval_datasets", "full_run", "upload", "models"]
+
+
+def load_run_config(path):
+    """Return the run config at path as the settings of a run. A field left out takes the command's default,
+    except upload, which is off unless the config turns it on."""
+    config = yaml.safe_load(Path(path).read_text())
+    if not isinstance(config, dict) or "models" not in config or set(config) - set(RUN_CONFIG_FIELDS):
+        raise ValueError(f"The run config {path} needs models and only these fields: {RUN_CONFIG_FIELDS}")
+    for field, known in [
+        ("suites", SUITES),
+        ("minimal_pair_datasets", list(MINIMAL_PAIR_DATASETS)),
+        ("euroeval_datasets", EUROEVAL_SWEDISH_DATASETS),
+    ]:
+        unknown = set(config.get(field) or []) - set(known)
+        if unknown:
+            raise ValueError(f"The run config {path} has unknown {field} {sorted(unknown)}; choose from {known}")
+    return {
+        "checkpoints": load_model_list(config["models"]),
+        "suites": config.get("suites") or SUITES,
+        "minimal_pair_datasets": config.get("minimal_pair_datasets") or list(MINIMAL_PAIR_DATASETS),
+        "euroeval_datasets": config.get("euroeval_datasets") or EUROEVAL_DATASETS,
+        "full_run": bool(config.get("full_run")),
+        "upload": bool(config.get("upload")),
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -32,18 +63,19 @@ def main(argv=None):
     run = commands.add_parser(
         "run", help="evaluate checkpoints on the chosen suites, write the result records and upload them"
     )
-    model_or_model_list = run.add_mutually_exclusive_group(required=True)
-    model_or_model_list.add_argument(
-        "--model-list", type=Path, help="the model list, such as models.yaml; each checkpoint in it is its own run"
+    config_or_model = run.add_mutually_exclusive_group(required=True)
+    config_or_model.add_argument(
+        "--config",
+        type=Path,
+        help="a run config, such as reference_run.yaml: the checkpoints, suites, datasets, quick or full run, and upload",
     )
-    model_or_model_list.add_argument("--model", help="Hugging Face repo id or local path of one checkpoint")
+    config_or_model.add_argument("--model", help="Hugging Face repo id or local path of one checkpoint")
     run.add_argument("--revision", help="with --model: branch, tag or commit hash of the Hugging Face repo")
     run.add_argument(
         "--suite",
         nargs="+",
         choices=SUITES,
-        default=["minimal-pair"],
-        help="the suites to run; default is the minimal-pair suite. The EuroEval suite needs a CUDA GPU",
+        help="the suites to run; default is both. The EuroEval suite needs a CUDA GPU",
     )
     run.add_argument(
         "--minimal-pair-dataset",
@@ -54,8 +86,9 @@ def main(argv=None):
     run.add_argument(
         "--euroeval-dataset",
         action="append",
-        choices=EUROEVAL_DATASETS,
-        help="a EuroEval dataset to run; repeat for more. Default is all six",
+        choices=EUROEVAL_SWEDISH_DATASETS,
+        metavar="EUROEVAL_DATASET",
+        help=f"a Swedish EuroEval dataset to run; repeat for more. Default is {', '.join(EUROEVAL_DATASETS)}",
     )
     run.add_argument("--full-run", action="store_true", help="mark the results as reportable; default is a quick run")
     run.add_argument("--no-upload", action="store_true", help="keep the run's files on this machine only")
@@ -72,12 +105,21 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        if args.model_list and args.revision:
-            parser.error("--revision goes with --model; give a model list entry its revision in the model list")
-        if args.model_list:
-            checkpoints = load_model_list(args.model_list)
+        if args.config:
+            if any([args.revision, args.suite, args.minimal_pair_dataset, args.euroeval_dataset, args.full_run,
+                    args.no_upload]):  # fmt: skip
+                parser.error("with --config, set the suites, datasets, full_run, upload and revisions in the run config")
+            settings = load_run_config(args.config)
         else:
-            checkpoints = [checkpoint_from_metadata(args.model, args.revision)]
+            settings = {
+                "checkpoints": [checkpoint_from_metadata(args.model, args.revision)],
+                "suites": args.suite or SUITES,
+                "minimal_pair_datasets": args.minimal_pair_dataset or list(MINIMAL_PAIR_DATASETS),
+                "euroeval_datasets": args.euroeval_dataset or EUROEVAL_DATASETS,
+                "full_run": args.full_run,
+                "upload": not args.no_upload,
+            }
+        checkpoints, chosen_suites = settings["checkpoints"], settings["suites"]
         for checkpoint in checkpoints:
             # EuroEval cannot load a local checkpoint directory given with a revision.
             if checkpoint["revision"] and Path(checkpoint["reference"]).is_dir():
@@ -86,7 +128,7 @@ def main(argv=None):
                     "give a revision only with a Hugging Face repo id"
                 )
         # Stop before any run, not after the scoring, when the run's files could not be uploaded.
-        if not args.no_upload:
+        if settings["upload"]:
             try:
                 results_repo()
             except RuntimeError as error:
@@ -94,23 +136,24 @@ def main(argv=None):
         for checkpoint in checkpoints:
             # A model list entry with suites runs only those of the chosen suites, so a base model can
             # skip the EuroEval suite. A checkpoint that runs no suite writes no run folder.
-            suites = [suite for suite in args.suite if suite in (checkpoint.get("suites") or args.suite)]
-            skipped = [suite for suite in args.suite if suite not in suites]
+            suites = [suite for suite in chosen_suites if suite in (checkpoint.get("suites") or chosen_suites)]
+            skipped = [suite for suite in chosen_suites if suite not in suites]
             print(f"Evaluating {checkpoint['reference']}" + (f", skipping {', '.join(skipped)}" if skipped else ""))
             run_dir = new_run_dir(args.results_dir)
             try:
                 if "minimal-pair" in suites:
-                    run_minimal_pair_suite(
-                        run_dir, checkpoint, args.minimal_pair_dataset or MINIMAL_PAIR_DATASETS, args.full_run
-                    )
+                    run_minimal_pair_suite(run_dir, checkpoint, settings["minimal_pair_datasets"], settings["full_run"])
                 if "euroeval" in suites:
-                    run_euroeval(run_dir, checkpoint, args.euroeval_dataset or EUROEVAL_DATASETS, args.full_run)
+                    run_euroeval(run_dir, checkpoint, settings["euroeval_datasets"], settings["full_run"])
             finally:
                 # A failed run still uploads the datasets it finished.
-                if run_dir.exists() and not args.no_upload:
+                if run_dir.exists() and settings["upload"]:
                     upload_run(run_dir)
     elif args.command == "download":
-        download_runs(args.results_dir)
+        try:
+            download_runs(args.results_dir)
+        except RuntimeError as error:
+            parser.error(str(error))
     else:
         print(write_results_table(args.results_dir, args.include_quick_runs), end="")
 

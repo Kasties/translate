@@ -1,34 +1,36 @@
 # Evaluation
 
-Evaluates checkpoints on two suites and collects the results in one table:
+This folder scores checkpoints on two suites and collects the results in one table.
 
-- **Minimal-pair suite**: does the model prefer the better of two Swedish sentences? Four datasets: Idioms, DaLAJ, ScaLA and Translationese. Runs on a CUDA GPU or the CPU.
-- **EuroEval suite**: Swedish downstream tasks from [EuroEval](https://euroeval.com/datasets/swedish), run through the pinned `euroeval==18.1.0`. Six datasets: `scala-sv`, `swedn`, `multi-ifeval-sv`, `skolprov`, `multi-wiki-qa-sv` and `swerec`. Needs a CUDA GPU.
+- The minimal-pair suite checks whether a model gives the better of two Swedish sentences the higher probability. It has four datasets: Idioms, DaLAJ, ScaLA and Translationese. It runs on a CUDA GPU or the CPU.
+- The EuroEval suite runs Swedish tasks from [EuroEval](https://euroeval.com/datasets/swedish) 18.1.0. By default it runs five: `scala-sv`, `swedn`, `skolprov`, `multi-wiki-qa-sv` and `swerec`. It needs a Linux machine with an NVIDIA GPU.
 
-This folder is a uv project of its own. Run every command from inside it.
+The folder is a uv project of its own. Run every command from inside it.
 
 ## Install
 
-You need [uv](https://docs.astral.sh/uv/) and, for the EuroEval suite, a Linux machine with an NVIDIA GPU. uv installs Python 3.12 and every dependency at the versions in `uv.lock`.
+Install [uv](https://docs.astral.sh/uv/). It installs Python 3.12 and the exact dependency versions in `uv.lock`.
 
 ```bash
 cd evaluation
 uv sync
-uv run hf auth login        # a Hugging Face token; EuroEval's datasets refuse anonymous downloads
+uv run hf auth login
 ```
+
+The login needs a Hugging Face token. EuroEval downloads its datasets with it.
 
 ## Reference run
 
-One small instruction-tuned model, SmolLM2-135M-Instruct (`reference_run.yaml`), through both suites: every minimal-pair dataset, and every EuroEval dataset except `multi-ifeval-sv`, the slowest. Use it to check that the evaluation works on a new machine.
+The reference run checks that the evaluation works on a new machine. It runs one small instruction-tuned model, SmolLM2-135M-Instruct, through both suites with the default datasets.
 
 ```bash
-uv run python -m evaluation run --model-list reference_run.yaml --suite minimal-pair euroeval \
-    --euroeval-dataset scala-sv --euroeval-dataset swedn --euroeval-dataset skolprov \
-    --euroeval-dataset multi-wiki-qa-sv --euroeval-dataset swerec --no-upload
+uv run python -m evaluation run --config reference_run.yaml
 uv run python -m evaluation table --include-quick-runs
 ```
 
-It is a quick run: its numbers check the pipeline and are never reported. On a Kaggle T4 it took 13 minutes: about 4 for the minimal-pair suite and 9 for the EuroEval suite, most of them spent installing EuroEval and vLLM, which happens once per machine. Its output should list the minimal-pair results and EuroEval's `Completed 5 benchmarks`, and the results table should have one row. On the T4 it gave, for example:
+On a Kaggle T4 the run took 13 minutes. The minimal-pair suite took 4 of them. The EuroEval suite took 9, mostly to install EuroEval and vLLM, which happens once per machine.
+
+The run should end without an error, and the results table should have one row. The T4 gave these values:
 
 | Column | Value |
 |---|---|
@@ -38,90 +40,123 @@ It is a quick run: its numbers check the pipeline and are never reported. On a K
 | `scala-sv` mcc | 0.00 |
 | `swedn` chr_f3pp | 26.93 |
 
-Another GPU or the CPU moves the minimal-pair numbers by a few pairs. A model this small is at chance on most EuroEval tasks, so an MCC near 0 is expected.
+Another GPU, or the CPU, changes the minimal-pair values by a few pairs. A model this small answers most EuroEval tasks at chance level, so an MCC near 0 is normal.
 
-Without a GPU, run the minimal-pair suite only: leave out `--suite minimal-pair euroeval` and the `--euroeval-dataset` flags. On a laptop CPU it takes about 30 minutes, 25 of them for DaLAJ; add `--minimal-pair-dataset Idioms` for a one-minute check.
+On a machine without a GPU, set `suites: [minimal-pair]` in a copy of `reference_run.yaml`. A laptop CPU then needs about 30 minutes, 25 of them for DaLAJ.
 
-## Evaluating checkpoints
+## Evaluating your checkpoints
 
-```bash
-uv run python -m evaluation run --model-list models.yaml --suite minimal-pair euroeval   # every checkpoint in a model list
-uv run python -m evaluation run --model <repo id> --revision <commit hash>               # one checkpoint, pinned
-uv run python -m evaluation run --model path/to/checkpoint                               # a local checkpoint folder
-```
+### Checkpoints
 
-**Checkpoints.** A checkpoint is a merged Hugging Face model: full weights, the tokenizer, and the chat template it was trained with. EuroEval needs the chat template. An adapter must be merged into its base model first. On a GPU without native bf16, such as a T4, store the checkpoint in bf16, not float32: EuroEval then switches it to float16, while a float32 checkpoint makes vLLM fail.
+A checkpoint is a merged Hugging Face model with full weights, the tokenizer and the chat template it was trained with. EuroEval needs the chat template. Merge an adapter into its base model before you evaluate it.
 
-**The model list** is a YAML file with one entry per checkpoint. Each checkpoint is evaluated in turn, as a run of its own, and its values tag its result records. Only `reference` is required:
+On a GPU without native bf16, such as a T4, store the checkpoint in bf16. EuroEval switches a bf16 checkpoint to float16 on such a GPU. A float32 checkpoint makes vLLM fail there.
+
+### Run config
+
+A run config is a YAML file that describes a whole run. `reference_run.yaml` is one, and its comments explain every field. Copy it and edit the copy.
 
 ```yaml
-- reference: <org>/<checkpoint repo>   # Hugging Face repo id or local path
-  revision: "<commit hash>"            # quoted, so YAML reads it as text; Hugging Face repos only
-  model_family: <base model repo id>
-  condition: seed-grounded             # seed-grounded, translated, MAGPIE or control; empty for a base model
-  training_method: full                # full or lora; empty for a base model
-  random_seed: 42
-  suites: [minimal-pair]               # optional: run only these of the suites chosen with --suite
+suites: [minimal-pair, euroeval]
+minimal_pair_datasets: []            # empty runs all four
+euroeval_datasets: []                # empty runs the default five
+full_run: false
+upload: false
+models:
+  - reference: <org>/<checkpoint repo>
+    revision: "<commit hash>"
+    model_family: <base model repo id>
+    condition: seed-grounded
+    training_method: full
+    random_seed: 42
 ```
 
-A base model gets `suites: [minimal-pair]`: EuroEval prompts base models differently and skips some tasks for them. With `--model` instead of a model list, the values come from `checkpoint_metadata.json` next to the checkpoint, if there is one.
+Each entry under `models` is one checkpoint. The command evaluates the checkpoints one after another, each as a run of its own, and tags their result records with the entry's values. Only `reference` is required. A base model gets `suites: [minimal-pair]`, because EuroEval prompts base models differently and skips some tasks for them.
 
-**Suites and datasets.** `--suite` picks `minimal-pair` (the default), `euroeval`, or both. `--minimal-pair-dataset` and `--euroeval-dataset` pick datasets, repeated for more; by default a suite runs all of its datasets.
+```bash
+uv run python -m evaluation run --config <your run config>.yaml
+```
 
-| Suite | Dataset | Pairs or examples | Reported per |
+### One checkpoint
+
+For a quick check of one checkpoint, give it on the command line instead of in a run config:
+
+```bash
+uv run python -m evaluation run --model <repo id> --revision <commit hash> --no-upload
+```
+
+It runs the same defaults as a run config. `--suite`, `--minimal-pair-dataset` and `--euroeval-dataset` change them, and the dataset flags can be repeated. `--full-run` marks the results as reportable. The command reads the checkpoint's values from `checkpoint_metadata.json` next to the checkpoint, if that file exists.
+
+### Suites and datasets
+
+A run uses both suites, all four minimal-pair datasets and five EuroEval datasets, unless you choose otherwise. To choose, write the whole list you want in the run config. Leave a dataset out of the list to remove it, and add a name to add one. Any Swedish dataset on the [EuroEval list](https://euroeval.com/datasets/swedish) works, such as `swedish-facts` or `belebele-sv`.
+
+```yaml
+suites: [minimal-pair]                                   # no EuroEval suite
+minimal_pair_datasets: [Idioms, ScaLA]                   # two of the four
+euroeval_datasets: [scala-sv, swerec, multi-ifeval-sv]   # two of the default five, plus multi-ifeval-sv
+```
+
+The default datasets are these:
+
+| Suite | Dataset | Size or task | Reported |
 |---|---|---|---|
-| minimal-pair | Idioms | 478 pairs | all, challenge (100 pairs) |
-| minimal-pair | DaLAJ | 20,948 pairs | error type: lexical, morphology, orthography, syntax, punctuation |
-| minimal-pair | ScaLA | 1,663 pairs | neighbouring words swapped, word deleted |
+| minimal-pair | Idioms | 478 pairs | all, and the 100-pair challenge subset |
+| minimal-pair | DaLAJ | 20,948 pairs | per error type: lexical, morphology, orthography, syntax, punctuation |
+| minimal-pair | ScaLA | 1,663 pairs | per corruption: neighbouring words swapped, word deleted |
 | minimal-pair | Translationese | 1,200 pairs | human vs OPUS, human vs GPT |
 | EuroEval | `scala-sv` | linguistic acceptability | MCC, macro-F1 |
 | EuroEval | `swedn` | summarisation | chrF3++, chrF4++ |
-| EuroEval | `multi-ifeval-sv` | instruction following | instruction accuracy |
-| EuroEval | `skolprov` | knowledge (school exam questions) | MCC, accuracy |
+| EuroEval | `skolprov` | school exam questions | MCC, accuracy |
 | EuroEval | `multi-wiki-qa-sv` | reading comprehension | F1, exact match |
 | EuroEval | `swerec` | sentiment | MCC, macro-F1 |
 
-**Quick runs and full runs.** Every run is a quick run unless you add `--full-run`. Quick runs check the pipeline and are left out of the results table by default; only full runs are reported. For the EuroEval suite, a quick run uses the validation split once, and a full run the test split ten times, which is about 80 times the work. For the minimal-pair suite both score every pair. Make all reported runs of one experiment on the same GPU type: bf16 scores shift by a few pairs between GPU types. Each result record names its GPU.
+`multi-ifeval-sv`, instruction following, is not a default because it is the slowest. Add it when you need it.
+
+### Quick runs and full runs
+
+Every run is a quick run unless `full_run` is true. The results table leaves quick runs out, and you never report their numbers. A EuroEval quick run scores the validation split once. A EuroEval full run scores the test split ten times, which is about 80 times the work. The minimal-pair suite scores every pair in both.
+
+Use the same GPU type for every reported run of one experiment. Scores in bf16 change by a few pairs between GPU types. Each result record names its GPU.
 
 ## Results
 
-Each run writes a folder of its own, `results/runs/<run>/`, named after the UTC time it started and the machine:
+Each run writes a folder of its own, `results/runs/<run>/`, named after the UTC time it started and the machine. The folder holds three files:
 
-- `result_records.jsonl`: one result record per dataset, subset and metric, with the checkpoint, its model list values, the value as a fraction, the 95% interval (`lower`, `upper`), the number of items, quick run or full run, the GPU and a timestamp.
-- `pair_scores.jsonl`: one row per minimal pair, with both sentences, the subsets it counts toward, and each sentence's summed log-probability and token count.
-- `euroeval_benchmark_results.jsonl`: EuroEval's own output, for a run of the EuroEval suite.
+- `result_records.jsonl` has one record per dataset, subset and metric. A record holds the checkpoint and its run config values, the value as a fraction, the 95% interval in `lower` and `upper`, the number of items, the run type, the GPU and a timestamp.
+- `pair_scores.jsonl` has one row per minimal pair. A row holds both sentences, the subsets the pair counts toward, and the summed log-probability and token count of each sentence.
+- `euroeval_benchmark_results.jsonl` holds EuroEval's own output for a run of the EuroEval suite.
 
 ```bash
-uv run python -m evaluation table                          # full runs only; add --include-quick-runs
-uv run python -m streamlit run evaluation/dashboard.py     # charts, and the minimal pairs two checkpoints disagree on
+uv run python -m evaluation table                          # full runs only, add --include-quick-runs for all
+uv run python -m streamlit run evaluation/dashboard.py     # charts per dataset, and the pairs two checkpoints disagree on
 ```
 
-The table has one row per checkpoint and one column per dataset, subset and metric. It is printed and written to `results/results_table.md` (percent with the 95% interval, ready for a report) and `results/results_table.csv` (fractions). A checkpoint run more than once shows its latest run.
+The table has one row per checkpoint and one column per dataset, subset and metric. The command prints it and writes `results/results_table.md`, with percentages and 95% intervals, and `results/results_table.csv`, with fractions. A checkpoint that ran more than once shows its latest run.
 
 ## Sharing results
 
-Without `--no-upload`, a run uploads its folder to a private Hugging Face dataset repo when it ends, so runs from Colab, Kaggle and lab machines end up in one place. Name the repo in the `RESULTS_REPO` environment variable; your token needs write access to it. The repo is created on the first upload.
+With `upload: true`, a run uploads its folder to a private Hugging Face dataset repo when it ends. Runs from Colab, Kaggle and lab machines then end up in one place. The `RESULTS_REPO` environment variable names the repo, and your token needs write access to it. The first upload creates the repo.
 
 ```bash
 export RESULTS_REPO=<org or user>/<results repo>
-uv run python -m evaluation run --model-list reference_run.yaml     # uploads when it ends
-uv run python -m evaluation download                                # fetches every run, on any machine
+uv run python -m evaluation download          # fetches every run, on any machine with read access
 ```
 
-Without `RESULTS_REPO`, a run that would upload stops before it starts and says so; add `--no-upload` to keep its files on this machine only. A failed upload leaves the run's files in `results/runs/<run>/`. Upload them again with:
+If `RESULTS_REPO` is empty, a run that would upload stops before it starts. If an upload fails, the run's files stay in `results/runs/<run>/`. Upload them again with:
 
 ```bash
 uv run hf upload $RESULTS_REPO results/runs/<run> runs/<run> --repo-type dataset
 ```
 
-## Scoring
+## How scoring works
 
-**Minimal pairs** follow Kunz (2026), "Preferences for idiomatic language are acquired slowly — and forgotten quickly: A case study on Swedish":
+The minimal-pair suite follows the protocol of Kunz (2026, Transactions of the Association for Computational Linguistics, volume 14).
 
-- Each sentence is scored alone as raw text, with no prompt and no chat template, for base and instruction-tuned models alike. The tokenizer adds its default special tokens.
-- Preference accuracy (mean) counts a pair as right when the better sentence has the strictly higher mean log-probability per token. Ties count as wrong. It is the number to report.
-- Preference accuracy (sum) compares summed log-probabilities instead. It favours the shorter sentence: on ScaLA's word-deleted pairs, where the worse sentence is shorter, it falls to about 7%.
-- Intervals are 95% Wilson intervals.
-- DaLAJ keeps only rows with a single error label, as the paper does, and has no pooled number. ScaLA uses all 1,663 pairs in the paper's CSVs, where the paper reports 552 and 601. Translationese strips trailing punctuation before scoring, as its paper's code does.
+- The scorer scores each sentence alone as raw text, with no prompt and no chat template, for base models and instruction-tuned models alike. The tokenizer adds its default special tokens.
+- Preference accuracy (mean) counts a pair as right when the better sentence has the strictly higher mean log-probability per token. A tie counts as wrong. Report this number.
+- Preference accuracy (sum) compares summed log-probabilities. It favours the shorter sentence. On ScaLA's word-deleted pairs, where the worse sentence is shorter, it drops to about 7%.
+- Each value has a 95% Wilson interval.
+- DaLAJ keeps only rows with a single error label, as the paper does, and has no pooled value. ScaLA uses all 1,663 pairs in the paper's CSV files, where the paper reports 552 and 601. Translationese removes trailing punctuation before scoring, as the paper's code does.
 
-**EuroEval** results are converted into the same result records: values as fractions, the metric name without EuroEval's `test_` prefix, no subset, and no item count. A quick run gives no interval, because EuroEval computes it over its ten iterations.
+The command converts EuroEval's output into the same kind of result records. It stores values as fractions, drops EuroEval's `test_` prefix from metric names, and leaves the subset and the item count empty. A quick run has no interval, because EuroEval computes intervals over its ten iterations.

@@ -15,7 +15,15 @@ import torch
 from evaluation.results import append_jsonl, append_results
 
 EUROEVAL_REQUIREMENT = "euroeval[generative]==18.1.0"
-EUROEVAL_DATASETS = ["scala-sv", "swedn", "multi-ifeval-sv", "skolprov", "multi-wiki-qa-sv", "swerec"]
+# The datasets a run uses when it names none. multi-ifeval-sv, the slowest, is left out by default.
+EUROEVAL_DATASETS = ["scala-sv", "swedn", "skolprov", "multi-wiki-qa-sv", "swerec"]
+# Every Swedish dataset of EuroEval 18.1.0, official and unofficial. A run can name any of them.
+EUROEVAL_SWEDISH_DATASETS = [
+    "scala-sv", "swedn", "multi-ifeval-sv", "skolprov", "multi-wiki-qa-sv", "swerec", "swedish-facts",
+    "suc3", "winogrande-sv", "valeu-sv", "zebra-puzzles-easy-sv", "ragtruth-sv", "scandiqa-sv", "belebele-sv",
+    "mmlu-sv", "arc-sv", "multiloko-sv", "hellaswag-sv", "goldenswag-sv", "schibsted-sv", "svd-seo-title",
+    "ifeval-sv", "gerlangmod-sv", "zebra-puzzles-hard-sv",
+]  # fmt: skip
 EUROEVAL_OUTPUT = "euroeval_benchmark_results.jsonl"
 
 

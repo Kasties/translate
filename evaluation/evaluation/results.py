@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
-import yaml
 from huggingface_hub import create_repo, hf_hub_download, snapshot_download, upload_folder
 from huggingface_hub.errors import EntryNotFoundError
 
@@ -64,10 +63,9 @@ def download_runs(results_dir):
     snapshot_download(results_repo(), repo_type="dataset", local_dir=results_dir, allow_patterns="runs/*")
 
 
-def load_model_list(path):
-    """Return the checkpoints in the model list at path, one dict per entry with every field in
-    MODEL_LIST_FIELDS. A field the entry leaves out is None."""
-    entries = yaml.safe_load(Path(path).read_text())
+def load_model_list(entries):
+    """Return the checkpoints in a model list, one dict per entry with every field in MODEL_LIST_FIELDS.
+    A field the entry leaves out is None."""
     for entry in entries:
         if "reference" not in entry or set(entry) - set(MODEL_LIST_FIELDS):
             raise ValueError(f"Model list entry {entry} needs a reference and only these fields: {MODEL_LIST_FIELDS}")
