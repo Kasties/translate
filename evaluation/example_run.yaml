@@ -1,23 +1,14 @@
-# An example run config with every field written out. Copy it to start your own.
-# Run as it is, it checks that the evaluation works on a new machine.
-# README.md, "Run config", explains each field.
+# Example run config. Copy it to start your own. Fields are explained in README.md.
 
-suites: [minimal-pair, euroeval]
-minimal_pair_datasets: [Idioms, DaLAJ, ScaLA, Translationese]
-euroeval_datasets: [scala-sv, swedn, skolprov, multi-wiki-qa-sv, swerec]
-full_run: false
-upload: false
+suites: [minimal-pair, euroeval]                                           # minimal-pair, euroeval
+minimal_pair_datasets: [Idioms, DaLAJ, ScaLA, Translationese]              # any of these four
+euroeval_datasets: [scala-sv, swedn, skolprov, multi-wiki-qa-sv, swerec]   # any Swedish EuroEval dataset
+full_run: false                                                            # true, false
+upload: false                                                              # true, false
 
 models:
-  # A base model. It runs the minimal-pair suite only.
-  - reference: HuggingFaceTB/SmolLM2-135M
-    revision: "93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
-    model_family: HuggingFaceTB/SmolLM2-135M
-    suites: [minimal-pair]
-
-  # An instruction-tuned model in place of a fine-tuned checkpoint. Replace it, and its labels, with yours.
-  - reference: HuggingFaceTB/SmolLM2-135M-Instruct
-    revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"
-    model_family: HuggingFaceTB/SmolLM2-135M
-    condition: control
-    training_method: full
+  - reference: HuggingFaceTB/SmolLM2-135M-Instruct                         # repo id or local folder
+    revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"                   # commit hash
+    model_family: HuggingFaceTB/SmolLM2-135M                               # base model
+    training_data: seed-grounded                                           # seed-grounded, translated, MAGPIE, control
+    training_method: full                                                  # full, lora

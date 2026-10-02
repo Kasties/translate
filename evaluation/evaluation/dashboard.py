@@ -15,9 +15,9 @@ import streamlit as st
 from evaluation.results import MATCH_KEYS, PAIR_SCORES, RESULT_RECORDS, download_runs, read_runs
 
 RESULTS_DIR = Path("results")
-# One fixed colour per condition, so filtering never repaints a condition. The colours are the first
-# slots of a colour-blind-safe categorical palette; a condition not listed here takes the next slot.
-CONDITION_ORDER = ["base model", "control", "seed-grounded", "translated", "MAGPIE"]
+# One fixed colour per training data, so filtering never repaints one. The colours are the first
+# slots of a colour-blind-safe categorical palette; training data not listed here takes the next slot.
+TRAINING_DATA_ORDER = ["base model", "control", "seed-grounded", "translated", "MAGPIE"]
 # Each colour has a step for the light and the dark theme, and so has the ink of intervals and labels.
 COLORS = {
     "light": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
@@ -43,7 +43,9 @@ if records.empty:
 
 # A checkpoint without checkpoint metadata is a base model, and its own model family.
 records["model_family"] = records["model_family"].fillna(records["checkpoint"])
-records["condition"] = records["condition"].fillna("base model")
+# Runs from before 2026-10-02 call the field condition.
+records["training_data"] = records.get("training_data", records.get("condition"))
+records["training_data"] = records["training_data"].fillna("base model")
 records["reference"] = records["checkpoint"].where(
     records["revision"].isna(), records["checkpoint"] + "@" + records["revision"].fillna("")
 )
@@ -71,14 +73,14 @@ shown = shown.copy()
 shown["label"] = shown["reference"].where(shown["run"] == "full", shown["reference"] + " (quick run)")
 # A checkpoint run more than once on a dataset shows its latest run, as in the results table.
 shown = shown[shown["timestamp"] == shown.groupby(["label", "dataset"])["timestamp"].transform("max")]
-conditions = CONDITION_ORDER + sorted(set(shown["condition"]) - set(CONDITION_ORDER))
-shown["condition_rank"] = shown["condition"].map(conditions.index)
-shown = shown.sort_values(["model_family", "condition_rank", "label"])
+kinds = TRAINING_DATA_ORDER + sorted(set(shown["training_data"]) - set(TRAINING_DATA_ORDER))
+shown["training_data_rank"] = shown["training_data"].map(kinds.index)
+shown = shown.sort_values(["model_family", "training_data_rank", "label"])
 for bound in ["value", "lower", "upper"]:
     shown[f"{bound} (percent)"] = 100 * shown[bound]
 
 theme = "dark" if st.context.theme.type == "dark" else "light"
-condition_colors = dict(zip(conditions, COLORS[theme]))
+colors = dict(zip(kinds, COLORS[theme]))
 # Every value is a fraction shown in percent, so one scale fits every chart; MCC can go below zero.
 x_scale = alt.Scale(domain=[min(0, shown["lower (percent)"].min(), shown["value (percent)"].min()), 100])
 charts = st.columns(2)
@@ -89,13 +91,13 @@ for index, ((dataset, subset, metric), group) in enumerate(groups):
     # Horizontal bars, so long checkpoint references stay readable.
     bars = alt.Chart(group, title=title).encode(
         y=alt.Y("label:N", sort=list(group["label"]), title=None, axis=alt.Axis(labelLimit=320)),
-        tooltip=["label", "model_family", "condition", "value (percent)", "lower (percent)",
+        tooltip=["label", "model_family", "training_data", "value (percent)", "lower (percent)",
                  "upper (percent)", "items", "gpu"],
     )  # fmt: skip
-    present = [condition for condition in conditions if condition in set(group["condition"])]
+    present = [kind for kind in kinds if kind in set(group["training_data"])]
     color = alt.Color(
-        "condition:N",
-        scale=alt.Scale(domain=present, range=[condition_colors[condition] for condition in present]),
+        "training_data:N",
+        scale=alt.Scale(domain=present, range=[colors[kind] for kind in present]),
         legend=alt.Legend(orient="bottom", title=None),
     )
     chart = (
@@ -122,7 +124,7 @@ for index, ((dataset, subset, metric), group) in enumerate(groups):
 st.caption("The error bar on each bar is its 95% confidence interval, when the result record has one.")
 st.dataframe(
     shown[
-        ["label", "model_family", "condition", "suite", "dataset", "subset", "metric",
+        ["label", "model_family", "training_data", "suite", "dataset", "subset", "metric",
          "value (percent)", "lower (percent)", "upper (percent)", "items", "run", "gpu", "timestamp"]
     ].rename(columns={"label": "checkpoint"}),  # fmt: skip
     column_config={column: st.column_config.NumberColumn(format="%.2f") for column in

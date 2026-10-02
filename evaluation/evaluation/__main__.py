@@ -119,7 +119,7 @@ def main(argv=None):
                 "full_run": args.full_run,
                 "upload": not args.no_upload,
             }
-        checkpoints, chosen_suites = settings["checkpoints"], settings["suites"]
+        checkpoints, suites = settings["checkpoints"], settings["suites"]
         for checkpoint in checkpoints:
             # EuroEval cannot load a local checkpoint directory given with a revision.
             if checkpoint["revision"] and Path(checkpoint["reference"]).is_dir():
@@ -134,11 +134,8 @@ def main(argv=None):
             except RuntimeError as error:
                 parser.error(str(error))
         for checkpoint in checkpoints:
-            # A model list entry with suites runs only those of the chosen suites, so a base model can
-            # skip the EuroEval suite. A checkpoint that runs no suite writes no run folder.
-            suites = [suite for suite in chosen_suites if suite in (checkpoint.get("suites") or chosen_suites)]
-            skipped = [suite for suite in chosen_suites if suite not in suites]
-            print(f"Evaluating {checkpoint['reference']}" + (f", skipping {', '.join(skipped)}" if skipped else ""))
+            # Every checkpoint gets the same evaluation: the run's suites and datasets.
+            print(f"Evaluating {checkpoint['reference']}")
             run_dir = new_run_dir(args.results_dir)
             try:
                 if "minimal-pair" in suites:

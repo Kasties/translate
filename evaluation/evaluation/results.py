@@ -22,9 +22,8 @@ RESULT_RECORDS = "result_records.jsonl"
 PAIR_SCORES = "pair_scores.jsonl"
 # The keys of match_keys in append_results: a pair score belongs to the result records that share them.
 MATCH_KEYS = ["checkpoint", "revision", "suite", "dataset", "timestamp"]
-# The fields of a model list entry. All but suites tag the checkpoint's result records; suites, when
-# given, limits the suites the checkpoint runs.
-MODEL_LIST_FIELDS = ["reference", "revision", "model_family", "condition", "training_method", "suites"]
+# The fields of a model list entry. They tag the checkpoint's result records.
+MODEL_LIST_FIELDS = ["reference", "revision", "model_family", "training_data", "training_method"]
 SUITES = ["minimal-pair", "euroeval"]
 
 
@@ -69,8 +68,6 @@ def load_model_list(entries):
     for entry in entries:
         if "reference" not in entry or set(entry) - set(MODEL_LIST_FIELDS):
             raise ValueError(f"Model list entry {entry} needs a reference and only these fields: {MODEL_LIST_FIELDS}")
-        if set(entry.get("suites") or []) - set(SUITES):
-            raise ValueError(f"Model list entry {entry} has an unknown suite; the suites are {SUITES}")
     return [{field: entry.get(field) for field in MODEL_LIST_FIELDS} for entry in entries]
 
 
@@ -90,7 +87,7 @@ def checkpoint_from_metadata(reference, revision=None):
         "reference": reference,
         "revision": revision,
         "model_family": metadata.get("base_model"),
-        "condition": metadata.get("condition"),
+        "training_data": metadata.get("training_data"),
         "training_method": metadata.get("training_method"),
     }
 
@@ -110,7 +107,7 @@ def append_results(run_dir, checkpoint, suite, dataset, results, pair_scores, fu
         {
             **match_keys,
             "model_family": checkpoint["model_family"],
-            "condition": checkpoint["condition"],
+            "training_data": checkpoint["training_data"],
             "training_method": checkpoint["training_method"],
             **result,
             "run": "full" if full_run else "quick",
@@ -132,7 +129,7 @@ def append_jsonl(path, rows):
 # The columns that label a checkpoint's row in the results table: (result record field, Markdown header).
 ROW_LABELS = [
     ("model_family", "Model family"),
-    ("condition", "Condition"),
+    ("training_data", "Training data"),
     ("checkpoint", "Checkpoint"),
 ]
 
@@ -164,13 +161,14 @@ def write_results_table(results_dir, include_quick_runs=False):
         if record["run"] == "quick" and not include_quick_runs:
             continue
         checkpoint = f"{record['checkpoint']}@{record['revision']}" if record["revision"] else record["checkpoint"]
-        row = tuple(checkpoint if field == "checkpoint" else record[field] for field, _ in labels)
+        # Runs from before 2026-10-02 have no training_data field.
+        row = tuple(checkpoint if field == "checkpoint" else record.get(field) for field, _ in labels)
         # A EuroEval dataset has no subsets.
         subset = f" ({record['subset']})" if record["subset"] else ""
         column = f"{record['dataset']}{subset} {record['metric']}"
         columns[column] = None
         records_by_row.setdefault(row, {})[column] = record
-    # Group the rows by model family, then condition; empty labels first.
+    # Group the rows by model family, then training data; empty labels first.
     rows = sorted(records_by_row, key=lambda row: [(value is not None, value) for value in row])
     cells = [[records_by_row[row].get(column) for column in columns] for row in rows]
 
