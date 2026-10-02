@@ -1,26 +1,8 @@
-# The reference run puts one small instruction-tuned model through both suites. Use it to check that
-# the evaluation works on a new machine. Run it from this folder with
-#
+# The reference run: SmolLM2-135M-Instruct through both suites with the default datasets.
+# Run it from this folder with
 #   uv run python -m evaluation run --config reference_run.yaml
-#
-# Copy this file to evaluate your own checkpoints. Only models is required.
+# README.md, "Run config", explains every field you can add.
 
-# Empty lists and left-out fields take the defaults. To change a list, write the whole list you want.
-suites: [minimal-pair, euroeval]    # the default. Use [minimal-pair] on a machine without an NVIDIA GPU
-minimal_pair_datasets: []           # empty runs all four: Idioms, DaLAJ, ScaLA, Translationese
-euroeval_datasets: []               # empty runs the default five: scala-sv, swedn, skolprov, multi-wiki-qa-sv,
-                                    # swerec. Any Swedish EuroEval dataset can be named, for example
-                                    # [scala-sv, swedn, skolprov, multi-wiki-qa-sv, swerec, multi-ifeval-sv]
-full_run: false                     # true only for numbers you will report
-upload: false                       # true uploads the run to the repo in RESULTS_REPO
-
-# One entry per checkpoint. The command evaluates each as a run of its own and tags its result records
-# with the entry's values.
 models:
-  - reference: HuggingFaceTB/SmolLM2-135M-Instruct     # Hugging Face repo id or local folder
-    revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"  # commit hash in quotes, for Hugging Face repos only
-    model_family: HuggingFaceTB/SmolLM2-135M-Instruct  # the base model it was trained from
-    # condition: seed-grounded       # seed-grounded, translated, MAGPIE or control, empty for a base model
-    # training_method: full          # full or lora
-    # random_seed: 42
-    # suites: [minimal-pair]         # run only these of the suites above, base models skip euroeval
+  - reference: HuggingFaceTB/SmolLM2-135M-Instruct
+    revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"

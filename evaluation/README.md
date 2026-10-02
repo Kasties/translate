@@ -42,7 +42,7 @@ The run should end without an error, and the results table should have one row. 
 
 Another GPU, or the CPU, changes the minimal-pair values by a few pairs. A model this small answers most EuroEval tasks at chance level, so an MCC near 0 is normal.
 
-On a machine without a GPU, set `suites: [minimal-pair]` in a copy of `reference_run.yaml`. A laptop CPU then needs about 30 minutes, 25 of them for DaLAJ.
+On a machine without a GPU, add `suites: [minimal-pair]` to a copy of `reference_run.yaml`. A laptop CPU then needs about 30 minutes, 25 of them for DaLAJ.
 
 ## Evaluating your checkpoints
 
@@ -54,28 +54,47 @@ On a GPU without native bf16, such as a T4, store the checkpoint in bf16. EuroEv
 
 ### Run config
 
-A run config is a YAML file that describes a whole run. `reference_run.yaml` is one, and its comments explain every field. Copy it and edit the copy.
+A run config is a YAML file that describes a whole run. Only `models` is required. Every other field has a default, so a short file runs both suites with the default datasets. `reference_run.yaml` is an example.
 
 ```yaml
-suites: [minimal-pair, euroeval]
-minimal_pair_datasets: []            # empty runs all four
-euroeval_datasets: []                # empty runs the default five
-full_run: false
-upload: false
+upload: true
 models:
-  - reference: <org>/<checkpoint repo>
+  - reference: Qwen/Qwen3.5-2B-Base           # a base model
+    model_family: Qwen/Qwen3.5-2B-Base
+    suites: [minimal-pair]
+  - reference: <org>/<checkpoint repo>        # a fine-tuned checkpoint
     revision: "<commit hash>"
-    model_family: <base model repo id>
+    model_family: Qwen/Qwen3.5-2B-Base
     condition: seed-grounded
     training_method: full
     random_seed: 42
 ```
 
-Each entry under `models` is one checkpoint. The command evaluates the checkpoints one after another, each as a run of its own, and tags their result records with the entry's values. Only `reference` is required. A base model gets `suites: [minimal-pair]`, because EuroEval prompts base models differently and skips some tasks for them.
-
 ```bash
 uv run python -m evaluation run --config <your run config>.yaml
 ```
+
+The fields of the run config apply to every checkpoint in it:
+
+| Field | What it sets | Default |
+|---|---|---|
+| `models` | the checkpoints to evaluate, one entry each | required |
+| `suites` | the suites to run | `[minimal-pair, euroeval]` |
+| `minimal_pair_datasets` | the datasets of the minimal-pair suite | all four |
+| `euroeval_datasets` | the datasets of the EuroEval suite | the five in the table below |
+| `full_run` | `true` marks the results as reportable | `false` |
+| `upload` | `true` uploads the run to the repo in `RESULTS_REPO` | `false` |
+
+The fields of an entry under `models` describe one checkpoint:
+
+| Field | What it is |
+|---|---|
+| `reference` | the Hugging Face repo id or a local folder. Required |
+| `revision` | the commit hash, in quotes. Hugging Face repos only |
+| `model_family`, `condition`, `training_method`, `random_seed` | labels for the results table: the base model, seed-grounded, translated, MAGPIE or control, full or lora, and the seed |
+| `suites` | a limit for this checkpoint only. A base model gets `[minimal-pair]`, because EuroEval prompts base models differently and skips some tasks for them |
+
+The command evaluates the checkpoints one after another, each as a run of its own.
 
 ### One checkpoint
 
@@ -89,7 +108,7 @@ It runs the same defaults as a run config. `--suite`, `--minimal-pair-dataset` a
 
 ### Suites and datasets
 
-A run uses both suites, all four minimal-pair datasets and five EuroEval datasets, unless you choose otherwise. To choose, write the whole list you want in the run config. Leave a dataset out of the list to remove it, and add a name to add one. Any Swedish dataset on the [EuroEval list](https://euroeval.com/datasets/swedish) works, such as `swedish-facts` or `belebele-sv`.
+To change the datasets, write the whole list you want in the run config. Leave a dataset out to remove it, and add a name to add one. Any Swedish dataset on the [EuroEval list](https://euroeval.com/datasets/swedish) works, such as `swedish-facts` or `belebele-sv`.
 
 ```yaml
 suites: [minimal-pair]                                   # no EuroEval suite
