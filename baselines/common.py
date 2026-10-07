@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -93,3 +94,28 @@ def to_chat(df: pd.DataFrame, source: str, instruction: str | None = None, respo
     rows = [{"id": f"{source}-{i}", "source": source, "messages": m} for i, m in enumerate(pairs) if m]
     print(f"Kept {len(rows):,} of {len(df):,} rows ({len(df) - len(rows):,} empty or malformed dropped)")
     return rows
+
+
+def chunk_main(name: str, processed: Path, description: str, size: int = 2000) -> None:
+    """CLI: split processed/<split>.jsonl into processed/chunks/<split>_chunk_NN_of_MM.jsonl."""
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--split", default="train")
+    parser.add_argument("--size", type=int, default=size)
+    args = parser.parse_args()
+
+    source = processed / f"{args.split}.jsonl"
+    if not source.exists():
+        raise SystemExit(f"{source} not found; run baselines.{name}.format_for_finetuning first.")
+    rows = read_jsonl(source)
+    total = math.ceil(len(rows) / args.size)
+
+    chunks = processed / "chunks"
+    chunks.mkdir(parents=True, exist_ok=True)
+    for old in chunks.glob(f"{args.split}_chunk_*.jsonl"):
+        old.unlink()
+    for n in range(total):
+        part = rows[n * args.size:(n + 1) * args.size]
+        path = chunks / f"{args.split}_chunk_{n + 1:02d}_of_{total:02d}.jsonl"
+        write_jsonl(path, part)
+        print(f"{path.name}: {len(part):,} rows ({part[0]['id']} .. {part[-1]['id']})")
+    print(f"{len(rows):,} rows -> {total} chunks in {chunks}")
