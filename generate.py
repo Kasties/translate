@@ -3,13 +3,12 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_NAME = "google/gemma-3-1b-pt"
-ADAPTER_DIR = "/scratch/muhsh/swedish-ft/outputs/test-adapter"
-
+ADAPTER_DIR = "/scratch/muhsh/swedish-ft/outputs/muri_chunks_1"
 tok = AutoTokenizer.from_pretrained(MODEL_NAME)
 base = AutoModelForCausalLM.from_pretrained(MODEL_NAME, dtype=torch.bfloat16, device_map="cuda")
 base.eval()
 
-prompt = "<start_of_turn>user\nVad är huvudstaden i Sverige?<end_of_turn>\n<start_of_turn>model\n"
+prompt = "<start_of_turn>user\nVad är fotosyntes?<end_of_turn>\n<start_of_turn>model\n"
 inputs = tok(prompt, return_tensors="pt").to("cuda")
 
 with torch.no_grad():
@@ -19,5 +18,6 @@ print("BASE", tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tok
 model = PeftModel.from_pretrained(base, ADAPTER_DIR)
 model.eval()
 with torch.no_grad():
-    out = model.generate(**inputs, max_new_tokens=40, do_sample=False)
+    end_id = tok.convert_tokens_to_ids("<end_of_turn>")
+    out = model.generate(**inputs, max_new_tokens=200, do_sample=False, repetition_penalty=1.2, eos_token_id=[tok.eos_token_id, end_id])
 print("LORA", tok.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True))
