@@ -30,4 +30,8 @@ artifacts/source2synth/runs/nlu-1000/*
 *.part
 # Baseline datasets (downloaded / generated locally)
 baselines/*/data/raw/
-baselines/*/data/processed/
+baselines/*/data/processed/*
+# Share the MURI fine-tuning chunks and eval splits (Apache-2.0); train.jsonl duplicates the chunks.
+!baselines/muri/data/processed/chunks/
+!baselines/muri/data/processed/validation.jsonl
+!baselines/muri/data/processed/test.jsonl

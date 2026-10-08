@@ -1,6 +1,8 @@
 # MURI baseline: Swedish fine-tuning data
 
-These steps build the Swedish MURI-IT dataset ([akoksal/muri-it-language-split](https://huggingface.co/datasets/akoksal/muri-it-language-split), Apache-2.0) in chat format, split into 2,000-example chunks for staged fine-tuning. The data is not stored in git, so you generate it locally. It takes about a minute.
+This is the Swedish MURI-IT dataset ([akoksal/muri-it-language-split](https://huggingface.co/datasets/akoksal/muri-it-language-split), Apache-2.0) in chat format, split into 2,000-example chunks for staged fine-tuning.
+
+**The ready-to-use files are committed to the repository.** After pulling, you will find them in `baselines/muri/data/processed/`: the `chunks/` folder, `validation.jsonl` and `test.jsonl`. You only need the steps below to regenerate them, which takes about a minute.
 
 ## Requirements
 
