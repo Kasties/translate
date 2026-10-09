@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Experiment pipeline entry point: ./pipeline --help, and docs/pipeline.md.
+set -euo pipefail
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -x "$root/.venv/bin/python" ]]; then
+    printf 'Missing %s/.venv; run scripts/setup.sh first\n' "$root" >&2
+    exit 1
+fi
+PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}" exec "$root/.venv/bin/python" -m source2synth.run "$@"

@@ -1,0 +1,10 @@
+# Source passages from your own files: .txt/.md (one document each), or
+# .jsonl/.json/.parquet/.csv records with a text column. Paths are relative to the repo.
+data:
+  source: local
+  local:
+    path: data/my-texts/
+    license: internal
+  fields:
+    text: text  # column holding the document text
+    topic: null  # or a column whose values are nlu.topics keys (kultur, vetenskap, ...)

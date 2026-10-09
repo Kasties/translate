@@ -1,0 +1,14 @@
+# First pilot: one pass over the existing curated slice1 export.
+model: google/gemma-4-12B
+revision: 023679ed352de9bb66cc873c9009ce3482585c08
+train_file: artifacts/source2synth/runs/nlu-1000/train.jsonl
+output_dir: artifacts/finetuning/gemma4-base-nlu-pilot
+seed: 42
+max_length: 2048
+epochs: 1
+learning_rate: 0.0002
+batch_size: 1
+gradient_accumulation_steps: 16
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05

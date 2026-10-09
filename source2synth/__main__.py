@@ -17,6 +17,7 @@ from .korp import assert_disjoint, prepare
 from .pipeline import curation_builder, designer, evaluation_builder, generation_builder
 from .backend import check_backend, resolved_config
 from .nlu_sources import TASKS, prepare_nlu, schedule
+from .sources import prepare_sources
 from .nlu_pipeline import generation_builder as nlu_generation_builder, curation_builder as nlu_curation_builder
 from .nlu_tasks import build_example, source_excerpt, training_record as nlu_training_record
 from .nlu_curation import CONTROLLED_TASKS, REVIEW_FIELDS, prediction_matches, review_passes
@@ -34,6 +35,36 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("validate", help="Compile DataDesigner generation and curation configs offline")
     nlu_prepare = commands.add_parser("prepare-nlu", help="Fetch broader, article-disjoint Korp NLU sources")
     nlu_prepare.add_argument("--offline", action="store_true")
+    nlu_prepare.add_argument("--cache-dir", type=Path, help="Korp response cache (default: DATA_DIR/raw)")
+    registers = commands.add_parser("prepare-registers", help="Prepare native passages by register and document cluster")
+    registers.add_argument("--offline", action="store_true")
+    registers.add_argument("--cache-dir", type=Path)
+    instructions = commands.add_parser("instruction-build", help="Build a curated native-target instruction mix")
+    instructions.add_argument("--target", type=int, required=True)
+    instructions.add_argument("--batch-size", type=int, default=25)
+    instructions.add_argument("--max-batches", type=int, default=20)
+    instructions.add_argument("--split", choices=["slice0", "slice1"], default="slice1")
+    instructions.add_argument("--model")
+    instructions.add_argument("--run-name", required=True)
+    instructions.add_argument("--resume", action="store_true")
+    compare = commands.add_parser("compare-register-runs", help="Compare coverage per generated token across matched builds")
+    compare.add_argument("--runs", type=Path, nargs="+", required=True)
+    compare.add_argument("--save", type=Path)
+    sources = commands.add_parser("prepare-sources",
+                                  help="Build NLU passages from a Hugging Face dataset or local files")
+    sources.add_argument("--source", choices=["hf", "local"], required=True)
+    sources.add_argument("--path", help="Local file, directory or glob (.txt/.md/.jsonl/.json/.parquet/.csv)")
+    sources.add_argument("--dataset", help="Hugging Face dataset id, e.g. wikimedia/wikipedia")
+    sources.add_argument("--subset", help="Dataset config/subset, e.g. 20231101.sv")
+    sources.add_argument("--split", default="train")
+    sources.add_argument("--revision", help="Dataset commit (default: latest)")
+    sources.add_argument("--text-field", default="text")
+    sources.add_argument("--title-field", default="title")
+    sources.add_argument("--id-field", default="id")
+    sources.add_argument("--url-field", default="url")
+    sources.add_argument("--topic-field", help="Use this field as the topic instead of keyword matching")
+    sources.add_argument("--max-documents", type=int, help="Stop after reading N documents")
+    sources.add_argument("--license", help="License recorded with every passage")
     commands.add_parser("model-check", help="Check that the configured local model is served")
     commands.add_parser("validate-nlu", help="Compile all seven NLU DataDesigner configs offline")
     nlu_generate = commands.add_parser("nlu-generate", help="Generate diverse candidates for all seven NLU tasks")
@@ -121,6 +152,25 @@ def require_credentials(config: dict, provider: str | None = None) -> None:
 def dataframe_records(frame: pd.DataFrame) -> list[dict]:
     # Convert Arrow/numpy containers to regular JSON values.
     return json.loads(frame.to_json(orient="records", force_ascii=False))
+
+
+def create_records(root: Path, config: dict, builder, num_records: int, dataset_name: str) -> list[dict]:
+    """Run DataDesigner; a batch in which every row failed yields no rows instead of aborting.
+
+    Callers already reject seeds that are missing from the output. DataDesigner raises
+    when nothing succeeded (common with weak models and small batches), so re-check the
+    server first: an outage must still stop the build rather than burn batches.
+    """
+    from data_designer.interface.errors import DataDesignerGenerationError
+
+    try:
+        results = designer(root, config).create(builder, num_records=num_records, dataset_name=dataset_name)
+    except DataDesignerGenerationError as error:
+        check_backend(config)
+        print(f"{dataset_name}: no usable rows in this batch; all {num_records} are rejected "
+              f"({str(error).splitlines()[0][:300]})", flush=True)
+        return []
+    return dataframe_records(results.load_dataset())
 
 
 def validate(config: dict, args) -> dict:
@@ -361,8 +411,7 @@ def nlu_generate(config: dict, args) -> dict:
         pd.DataFrame(flat).to_parquet(seed_path, index=False)
         builder = nlu_generation_builder(seed_path, config, task)
         builder.write_config(task_dir / "datadesigner.yaml")
-        results = designer(task_dir / "dd", config).create(builder, num_records=len(selected), dataset_name=task)
-        returned = dataframe_records(results.load_dataset())
+        returned = create_records(task_dir / "dd", config, builder, len(selected), task)
         lookup = {row["seed_id"]: row for row in selected}
         seen = set()
         for row in returned:
@@ -478,9 +527,7 @@ def _nlu_curator_responses(rows: list[dict], run: Path, config: dict) -> list[di
             builder = nlu_curation_builder(seed_path, config, ner=ner, ged=ged,
                                           prediction_only=bool(attempt), attempt=attempt)
             builder.write_config(stage / "datadesigner.yaml")
-            results = designer(stage / "dd", config).create(
-                builder, num_records=len(pending), dataset_name="nlu_curation")
-            for row in dataframe_records(results.load_dataset()):
+            for row in create_records(stage / "dd", config, builder, len(pending), "nlu_curation"):
                 seed_id = row.get("seed_id")
                 if seed_id not in histories:
                     returned.append(row)  # The caller records unknown IDs as rejections.
@@ -823,7 +870,26 @@ def main() -> None:
         if args.command == "prepare":
             report = prepare(config, args.data_dir, args.offline)
         elif args.command == "prepare-nlu":
-            report = prepare_nlu(config, args.data_dir, args.offline)
+            report = prepare_nlu(config, args.data_dir, args.offline, args.cache_dir)
+        elif args.command == "prepare-registers":
+            from .register_sources import prepare_registers
+            report = prepare_registers(config, args.data_dir, args.cache_dir, args.offline)
+        elif args.command == "instruction-build":
+            from .instruction_data import build_instructions
+            report = build_instructions(config, args)
+        elif args.command == "compare-register-runs":
+            from .instruction_data import compare_runs
+            report = compare_runs(args.runs)
+            if args.save:
+                write_json(args.save, report)
+        elif args.command == "prepare-sources":
+            report = prepare_sources(
+                config, args.data_dir, source=args.source, path=args.path, dataset=args.dataset,
+                subset=args.subset, split=args.split, revision=args.revision,
+                text_field=args.text_field, title_field=args.title_field or None,
+                id_field=args.id_field or None, url_field=args.url_field or None,
+                topic_field=args.topic_field, max_documents=args.max_documents,
+                license_as_listed=args.license)
         elif args.command == "validate":
             report = validate(config, args)
         elif args.command == "model-check":

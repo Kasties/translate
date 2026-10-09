@@ -35,9 +35,9 @@ READING_CLUES = {
 }
 
 
-def prepare_nlu(config: dict, data_dir: Path, offline: bool = False) -> dict:
+def prepare_nlu(config: dict, data_dir: Path, offline: bool = False, cache_dir: Path | None = None) -> dict:
     cfg, nlu = config["corpus"], config["nlu"]
-    client = KorpClient(cfg["api"], data_dir / "raw", offline)
+    client = KorpClient(cfg["api"], cache_dir or data_dir / "raw", offline)
     info = client.get("corpus_info", {"corpus": cfg["id"]})
     passages = {}
     for topic, queries in nlu["topics"].items():

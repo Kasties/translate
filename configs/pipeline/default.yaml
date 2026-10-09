@@ -1,0 +1,115 @@
+# Defaults for every pipeline experiment (./pipeline run <experiment>.yaml).
+# An experiment file only lists what differs; it is merged on top of this file.
+# Any key can also be set on the command line: --set sft.model=Qwen/Qwen3-8B
+#
+# Stages: sources -> generate -> sft -> eval. Start anywhere with --from/--only.
+# Outputs are named after the experiment:
+#   artifacts/pipeline/<name>/          resolved configs, passages, logs, pipeline.json
+#   artifacts/source2synth/runs/<name>/ generated + curated train.jsonl
+#   artifacts/finetuning/<name>/        LoRA adapter + training manifest
+#   artifacts/euroeval/<name>/, artifacts/idioms/<name>/
+#
+# "experiment:<other>" reuses another experiment's output for any input below.
+
+name: null  # default: the experiment file name
+
+# --- 1. Source passages for synthetic generation ---------------------------
+data:
+  source: korp  # registers | korp | hf | local
+  registers:
+    cache_dir: data/register-cache
+    offline: false
+  korp:
+    offline: false  # true = rebuild only from cached Korp responses (data/raw)
+  hf:
+    dataset: null  # e.g. wikimedia/wikipedia
+    subset: null  # e.g. 20231101.sv
+    split: train
+    revision: null
+    max_documents: 20000
+    license: null  # recorded with every passage, e.g. CC-BY-SA-4.0
+  local:
+    path: null  # file, directory or glob; an existing passages.jsonl is reused as-is
+    max_documents: null
+    license: null
+  # Column names for hf/local records (.txt/.md files use their text and file name).
+  fields:
+    text: text
+    title: title
+    id: id
+    url: url
+    topic: null  # null = assign topics by the nlu.topics keywords in configs/source2synth.yaml
+
+# --- 2. Generate + curate NLU training data --------------------------------
+generator:
+  model: google/gemma-4-12B-it  # Hugging Face id (vllm) or served alias (llamacpp/external)
+  revision: null
+  backend: vllm  # vllm | llamacpp | external
+  endpoint: null  # external only: an already running OpenAI-compatible /v1 URL
+  port: 8080
+  max_parallel_requests: 16  # concurrent requests; RTX 4090 + llama.cpp used 2
+  max_model_len: 8192
+  gpu_memory_utilization: 0.90
+  language_model_only: auto  # auto = skip vision/audio towers of multimodal checkpoints
+  vllm_args: []  # extra `vllm serve` flags
+  llamacpp_env: {}  # extra env for scripts/serve-local.sh, e.g. {S2S_GGUF: /models/x.gguf}
+
+datagen:
+  mode: nlu  # instructions = register/native-target mix; nlu = legacy task-only build
+  config: configs/source2synth.yaml
+  overrides: {}  # deep-merged into that file, e.g. {nlu: {curation_attempts: 2}}
+  target: 1000  # accepted, deduplicated rows to export
+  batch_size: 25  # candidates per task per batch
+  max_batches: 20  # per invocation; rerunning the stage resumes
+  split: slice1
+  tasks: [all]
+  balance_tasks: true
+  require_complete: false  # true = stop before SFT if the target was not reached
+  refresh_inputs: false  # true = resume a build after its config/passages changed (recorded)
+
+# --- 3. Supervised fine-tuning (LoRA) --------------------------------------
+sft:
+  model: google/gemma-4-12B
+  revision: null  # pin a commit for reproducibility
+  # null = this experiment's generated train.jsonl. Or one/a list of:
+  # experiment:<name>, a path (.jsonl/.json/.parquet), hf:org/name[:split], hf:org/name@subset[:split]
+  train_file: null
+  quantization: none  # none = bf16 LoRA (96 GB card); nf4 = QLoRA (24 GB card)
+  chat_template: auto  # auto | base | model | path to a .jinja file
+  model_class: auto
+  attn_implementation: sdpa
+  seed: 42
+  max_length: 2048
+  epochs: 1
+  max_steps: -1  # >0 overrides epochs (smoke tests)
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  batch_size: 8
+  gradient_accumulation_steps: 2  # effective batch 16, as in the pilot
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  require_provenance: false  # true = only accept pipeline exports with accepted.jsonl
+
+# --- 4. Evaluation: base model vs. base + adapter --------------------------
+eval:
+  model: null  # null = sft.model
+  revision: null  # null = sft.revision when model is null
+  adapter: null  # null = this experiment's adapter; experiment:<name>; a path; none = base only
+  names: {base: base, tuned: tuned}  # served model names in the results
+  port: 8000
+  quantization: none  # none | bitsandbytes (the 4090 pilot used bitsandbytes)
+  max_model_len: 4096
+  gpu_memory_utilization: 0.85
+  max_num_seqs: 64
+  language_model_only: auto
+  vllm_args: []
+  euroeval:
+    enabled: true
+    datasets: [swerec, scala-sv]
+    iterations: 1
+    generative_type: base  # base | instruction_tuned
+  idioms:
+    enabled: true
+    limit: null  # score only the first N pairs (smoke test)

@@ -2,6 +2,46 @@
 
 This project uses [NeMo DataDesigner](https://docs.nvidia.com/nemo/datadesigner/) to construct and curate Swedish synthetic examples grounded in [Svenska Wikipedia in Korp](https://spraakbanken.gu.se/korp/#?corpus=wikipedia-sv). The earlier two-document QA pipeline and its method are preserved in [the MHQA guide](docs/source2synth-mhqa.md). This workflow adapts the real-source construction and independent solving/curation pattern of [Source2Synth](https://arxiv.org/abs/2409.08239v2); it does not claim to reproduce the paper's fine-tuning results.
 
+## Quick start: the experiment pipeline
+
+`./pipeline` runs everything with one command: source passages (Korp, a Hugging Face
+dataset or local files) → synthetic data generation and curation → LoRA fine-tuning →
+EuroEval + idioms benchmarks. It starts and stops the model servers itself and can start
+at any stage, for example fine-tuning a new model on existing data. See
+[the pipeline guide](docs/pipeline.md).
+
+```bash
+bash scripts/setup.sh                 # environments from the lock files + ./pipeline doctor
+./pipeline run smoke-test             # tiny models: checks every stage on a new machine
+./pipeline new                        # pick data + models interactively
+./pipeline run my-exp                 # all stages; rerun to continue
+./pipeline run --name qwen3 --from sft --set sft.model=Qwen/Qwen3-8B-Base \
+    --set sft.train_file=artifacts/source2synth/runs/nlu-1000/train.jsonl
+```
+
+The sections below document the individual commands the pipeline runs.
+
+## Register-first native Swedish targets
+
+`register-native` samples documents by register and multilingual embedding cluster,
+with a configurable 60% instruction backtranslation / 25% idiomatic rewriting /
+10% grounded response / 5% NLU mix. Backtranslation and rewriting use the original
+human passage as the assistant target; generated prompt text stays masked during
+training. Riksdag debates, Wikipedia and Arbetsförmedlingen job ads are sampled from Korp; Litteraturbanken
+(Korp `LB-OPEN`) is configured but off by default. Korp's forum corpora are
+sentence-scrambled, so forum/opinion/advice text needs coherent local exports.
+
+```bash
+uv sync --locked --extra registers
+./pipeline run register-native --only sources
+./pipeline run register-native --from generate
+```
+
+Matched random and keyword baselines, source attribution, resumable generation,
+and diversity per generated token are documented in the
+[register data guide](docs/register-data.md). Existing NLU experiments keep their
+original configuration and commands.
+
 ## Local model
 
 The default is [Google's instruction-tuned Gemma 4 12B](https://huggingface.co/google/gemma-4-12B-it)
@@ -194,6 +234,17 @@ current deterministic rules before any model call. Model review is fallible, and
 
 The Korp corpus is listed by Språkbanken under CC-BY-4.0 with [DOI 10.23695/7dz6-ek80](https://doi.org/10.23695/7dz6-ek80). Keep `accepted.jsonl` and the source manifest with shared training data so attribution is retained. The repository license is separate from corpus and model terms.
 
+## Fine-tune with TRL and benchmark with EuroEval
+
+The [fine-tuning guide](docs/finetuning.md) provides a one-epoch QLoRA pilot on
+**Gemma 4 12B base**, using the current curated export, followed by a matched
+before/after EuroEval validation comparison on Swedish sentiment and linguistic
+acceptability. Start with `python -m source2synth.finetune --dry-run` to validate
+the data. The guide includes separate training/evaluation environments, GPU
+commands, output locations and the limits of the pilot scores. The same served
+models can also be scored on the [Swedish idioms minimal-pair benchmark](docs/finetuning.md#swedish-idioms-minimal-pairs)
+with `.venv-eval/bin/python -m source2synth.idioms`.
+
 ## Moving to the paper's training stages
 
 The current NLU workflow is an adaptation of Source2Synth, not the paper's MHQA/TQA
@@ -203,6 +254,8 @@ on its `uncurated_train.jsonl`; then serve that checkpoint and independently cur
 The source split is assigned by article before generation, and `eval` never exports
 training data. See [Source2Synth §3.2–3.3](https://arxiv.org/pdf/2409.08239) and the
 [existing MHQA guide](docs/source2synth-mhqa.md). NLU training, imputation, and EuroEval
-execution are not implemented by these data-preparation commands. A slice1 run
+execution are separate from these data-preparation commands; the pilot above
+implements direct curated-data training and benchmarking. Imputation and the
+paper's complete two-stage training procedure remain unimplemented. A slice1 run
 curated by the original base model is a baseline, not the paper's intermediate-model
 curation stage.

@@ -1,4 +1,7 @@
 .venv/
+.venv-train/
+.venv-eval/
+.euroeval_cache/
 .git-real/
 __pycache__/
 *.py[cod]
@@ -28,3 +31,6 @@ artifacts/source2synth/runs/nlu-1000/*
 .env.*
 !.env.example
 *.part
+
+# Local Claude Code permissions
+.claude/settings.local.json

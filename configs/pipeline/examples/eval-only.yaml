@@ -1,0 +1,5 @@
+# Benchmark a model without fine-tuning it.
+#   ./pipeline run configs/pipeline/examples/eval-only.yaml --only eval
+eval:
+  model: google/gemma-4-12B
+  adapter: none

@@ -105,10 +105,10 @@
     }
   },
   "data_designer_version": "0.9.2",
-  "accepted": 844,
-  "rejected": 94,
+  "accepted": 853,
+  "rejected": 133,
   "rejection_counts": {
-    "duplicate_across_batches": 94
+    "duplicate_across_batches": 133
   },
   "target": 1000,
   "complete": false,
@@ -333,10 +333,52 @@
       "generated": 31,
       "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0029",
       "curated": 7
+    },
+    {
+      "offset": 750,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0030",
+      "generated": 30,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0030",
+      "curated": 7
+    },
+    {
+      "offset": 775,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0031",
+      "generated": 34,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0031",
+      "curated": 10
+    },
+    {
+      "offset": 800,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0032",
+      "generated": 34,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0032",
+      "curated": 8
+    },
+    {
+      "offset": 825,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0033",
+      "generated": 37,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0033",
+      "curated": 9
+    },
+    {
+      "offset": 850,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0034",
+      "generated": 33,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0034",
+      "curated": 8
+    },
+    {
+      "offset": 875,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0035",
+      "generated": 30,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0035",
+      "curated": 6
     }
   ],
-  "next_offset": 750,
-  "curated_before_dedup": 973,
+  "next_offset": 900,
+  "curated_before_dedup": 1021,
   "surplus": 35,
   "task_quotas": {
     "classification": 143,
@@ -468,15 +510,15 @@
       }
     }
   ],
-  "unique_source_articles": 314,
+  "unique_source_articles": 319,
   "by_task": {
     "classification": 143,
     "sentiment-classification": 143,
     "linguistic-acceptability": 143,
     "reading-comprehension": 143,
     "natural-language-inference": 143,
-    "grammatical-error-detection": 80,
-    "named-entity-recognition": 49
+    "grammatical-error-detection": 84,
+    "named-entity-recognition": 54
   },
   "by_label": {
     "classification/kultur": 34,
@@ -484,7 +526,7 @@
     "linguistic-acceptability/incorrect": 60,
     "reading-comprehension/time": 35,
     "natural-language-inference/contradiction": 65,
-    "grammatical-error-detection/correct": 46,
+    "grammatical-error-detection/correct": 50,
     "classification/samhälle": 22,
     "linguistic-acceptability/correct": 83,
     "natural-language-inference/entailment": 53,
@@ -499,12 +541,12 @@
     "classification/teknik": 16,
     "reading-comprehension/place": 32,
     "reading-comprehension/person": 15,
-    "named-entity-recognition/loc": 16,
+    "named-entity-recognition/loc": 18,
     "reading-comprehension/quantity": 12,
     "reading-comprehension/cause": 18,
     "named-entity-recognition/per": 11,
-    "named-entity-recognition/org": 15,
-    "named-entity-recognition/mixed": 7
+    "named-entity-recognition/org": 16,
+    "named-entity-recognition/mixed": 9
   },
   "model": "google/gemma-4-12B-it",
   "limitation": "Accepted synthetic labels still need human spot checks"
