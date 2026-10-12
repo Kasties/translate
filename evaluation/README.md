@@ -147,7 +147,7 @@ Each run writes a folder of its own, `results/runs/<run>/`, named after the UTC 
 ```bash
 uv run python -m evaluation table                          # full runs only
 uv run python -m evaluation table --include-quick-runs     # quick runs too
-uv run python -m streamlit run evaluation/dashboard.py     # charts per dataset, and the pairs two checkpoints disagree on
+uv run python -m streamlit run evaluation/dashboard.py     # charts per dataset, every run over time, and the pairs two checkpoints disagree on
 ```
 
 The table shows full runs only. Every run is a quick run unless its run config sets `full_run: true`, so add `--include-quick-runs` to see test runs. Without it, a table with only quick runs prints "No full runs yet".
