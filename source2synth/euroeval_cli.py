@@ -45,6 +45,20 @@ def install_prompt_stripping(tokenizer) -> None:
     LiteLLMModel.generate = generate
 
 
+def install_text_completion_message() -> None:
+    """Give text completions the `.message` EuroEval 18.1.0 reads on every response.
+
+    A base model goes through the completions endpoint, whose choices carry `.text`,
+    yet EuroEval's empty-output check and its startup test read
+    `choices[0].message`, so every base model run fails with AttributeError. Its
+    output parsing checks the choice type first and is unaffected.
+    """
+    from litellm.types.utils import Message, TextChoices
+
+    if not hasattr(TextChoices, "message"):
+        TextChoices.message = property(lambda choice: Message(content=choice.text))
+
+
 def load_tokenizer(model: str, revision: str):
     from transformers import AutoTokenizer
 
@@ -63,6 +77,7 @@ def main() -> None:
 
     from euroeval.cli import benchmark
 
+    install_text_completion_message()
     install_prompt_stripping(load_tokenizer(args.tokenizer, args.tokenizer_revision))
     benchmark.main(args=euroeval_args, prog_name="euroeval")
 
