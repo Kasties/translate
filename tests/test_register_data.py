@@ -337,6 +337,41 @@ class GenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Held-out"):
                 build_instructions(config, args, FakeClient)
 
+    def test_parallel_build_matches_sequential_and_reruns_unfinished_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = fixture_pool(root)
+            config["instruction_data"]["weights"] = {"backtranslation": 0.6, "rewrite": 0.4}
+            prepare_registers(config, root / "data")
+            args = argparse.Namespace(data_dir=root / "data", output_dir=root / "output", split="slice1",
+                run_name="sequential", target=10, batch_size=2, max_batches=10, resume=False)
+            config["model"]["max_parallel_requests"] = 1
+            build_instructions(config, args, FakeClient)
+            config["model"]["max_parallel_requests"] = 4
+            args.run_name = "parallel"
+            build_instructions(config, args, FakeClient)
+            sequential, parallel = root / "output/runs/sequential", root / "output/runs/parallel"
+            self.assertEqual(read_jsonl(sequential / "train.jsonl"), read_jsonl(parallel / "train.jsonl"))
+
+            # Interrupt a backtranslation attempt after its draft call: no attempt record, no review.
+            attempt_id = next(path.stem for path in sorted((parallel / "dispatched").glob("*.json"))
+                              if json.loads(path.read_text())["task"] == "backtranslation")
+            (parallel / f"attempts/{attempt_id}.json").unlink()
+            (parallel / f"calls/{attempt_id}-review.json").unlink()
+            draft = json.loads((parallel / f"calls/{attempt_id}-draft.json").read_text())
+            message = draft["response"]["choices"][0]["message"]
+            message["content"] = json.dumps({"possible": True, "instruction": "Berätta om en återspelad dag."})
+            (parallel / f"calls/{attempt_id}-draft.json").write_text(json.dumps(draft))
+            args.resume = True
+            report = build_instructions(config, args, FakeClient)
+            self.assertTrue(report["complete"])
+            rerun = json.loads((parallel / f"attempts/{attempt_id}.json").read_text())
+            # Same task, register and source as dispatched, so the same prompt: the saved
+            # draft is replayed, not requested again.
+            self.assertEqual(rerun["draft"]["instruction"], "Berätta om en återspelad dag.")
+            self.assertTrue(rerun["accepted"])
+            self.assertEqual(len(list((parallel / "attempts").glob("*.json"))), 10)
+
     def test_native_review_shows_target_once_and_schema_is_enforced(self):
         # Regressions: a duplicated source block read as "copied from the source", and
         # unconstrained JSON echoed schema keys such as "title" that strict parsing rejects.

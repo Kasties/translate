@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import math
 import os
+import threading
 from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import numpy as np
@@ -67,7 +69,15 @@ class CompletionClient:
     def __init__(self, config: dict, directory: Path):
         self.model = resolved_config(config)["model"]
         self.directory = directory
-        self.session = requests.Session()
+        # Attempts run in worker threads, and a requests.Session is not guaranteed to be
+        # thread-safe, so every thread gets a session of its own.
+        self.local = threading.local()
+
+    @property
+    def session(self) -> requests.Session:
+        if not hasattr(self.local, "session"):
+            self.local.session = requests.Session()
+        return self.local.session
 
     def call(self, key: str, prompt: str, schema, max_tokens: int, temperature: float = 0.7):
         path = self.directory / f"{key}.json"
@@ -351,33 +361,47 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
     client = client_factory(config, run / "calls")
     report = export_build(run, contract, client, manifest, source_dir)
     accepted = read_jsonl(run / "accepted.jsonl")
-    prompts = {normalize(item["input"]) for item in accepted}
-    native_targets = {(item["task"], normalize(item["output"])) for item in accepted
-                      if item["task"] in NATIVE_TASKS}
+    # Prompts and native targets of accepted and in-flight attempts. An attempt reserves its
+    # own before solving and review and releases them when rejected, so attempts running
+    # at the same time never produce duplicate training examples.
+    taken = {("input", normalize(item["input"])) for item in accepted}
+    taken |= {(item["task"], normalize(item["output"])) for item in accepted if item["task"] in NATIVE_TASKS}
     counts = Counter((item["task"], item["source"]["register"]) for item in accepted)
-    previous = [json.loads(path.read_text()) for path in sorted((run / "attempts").glob("*.json"))]
-    cell_attempts = Counter((item["task"], item["register"]) for item in previous)
+    finished = {path.stem: json.loads(path.read_text()) for path in (run / "attempts").glob("*.json")}
+    # A dispatch record pins an attempt's task, register and source before its first call.
+    # An attempt interrupted in flight is rerun from it with the same prompts, so its
+    # journaled calls are replayed instead of paid for twice.
+    dispatched = {path.stem: json.loads(path.read_text()) for path in (run / "dispatched").glob("*.json")}
+    unfinished = sorted((key, {**record, "accepted": False}) for key, record in dispatched.items()
+                        if key not in finished)
+    # Every attempt counts once, finished or not: its source index is used up either way.
+    cell_attempts = Counter((item["task"], item["register"]) for item in {**dispatched, **finished}.values())
+    next_id = max((int(key) for key in finished.keys() | dispatched.keys()), default=-1) + 1
     order = [(task, register) for task in allocation for register in cells[task] if cells[task][register]]
-    for step in range(args.batch_size * args.max_batches):
-        pending = [cell for cell in order if counts[cell] < cells[cell[0]][cell[1]]]
-        if not pending:
-            break
-        task, register = min(pending, key=lambda c: (cell_attempts[c] / cells[c[0]][c[1]], order.index(c)))
-        index = cell_attempts[(task, register)]
-        rows = by_register[register]
+    in_flight = Counter()
+    lock = threading.Lock()
+    topics = list(config["nlu"]["topics"])
+
+    def run_attempt(attempt_id: str, attempt: dict) -> dict:
+        """Draft, check, solve and review one attempt; runs in a worker thread."""
+        task, index = attempt["task"], attempt["index"]
+        rows = by_register[attempt["register"]]
         source = rows[index % len(rows)]
-        attempt_id = f"{len(previous) + step:07d}"
-        attempt = {"task": task, "register": register, "source_id": source["id"], "index": index,
-                   "accepted": False}
+        reserved = set()
         try:
             schema, prompt = draft_request(task, source, index)
             limit = cfg["backtranslation_max_tokens"] if task == "backtranslation" else cfg["generation_max_tokens"]
             draft = client.call(attempt_id + "-draft", prompt, schema, limit)
             attempt["draft"] = draft
-            item = make_example(task, source, draft, index, list(config["nlu"]["topics"]))
-            if normalize(item["input"]) in prompts or (task in NATIVE_TASKS and
-                    (task, normalize(item["output"])) in native_targets):
-                raise ValueError("duplicate_training_example")
+            item = make_example(task, source, draft, index, topics)
+            keys = {("input", normalize(item["input"]))}
+            if task in NATIVE_TASKS:
+                keys.add((task, normalize(item["output"])))
+            with lock:
+                if keys & taken:
+                    raise ValueError("duplicate_training_example")
+                taken.update(keys)
+                reserved = keys
             if task in NLU_TASKS:
                 prediction = client.call(attempt_id + "-solve",
                     "Lös följande uppgift oberoende. Returnera endast det korta svaret i answer.\n" + item["input"],
@@ -392,18 +416,57 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                 raise ValueError("semantic_review_failed")
             item["review"] = review
             attempt.update(accepted=True, example=item)
-            counts[(task, register)] += 1
-            prompts.add(normalize(item["input"]))
-            if task in NATIVE_TASKS:
-                native_targets.add((task, normalize(item["output"])))
         except (ValueError, KeyError, TypeError) as error:
             attempt["reason"] = str(error)
-        atomic_json(run / "attempts" / f"{attempt_id}.json", attempt)
-        cell_attempts[(task, register)] += 1
-        if (step + 1) % args.batch_size == 0:
-            report = export_build(run, contract, client, manifest, source_dir)
-            print(f"Instruction build: {report['accepted']}/{args.target} accepted; {report['by_task']}; "
-                  f"{report['by_register']}", flush=True)
+            with lock:
+                taken.difference_update(reserved)
+        return attempt
+
+    # Up to max_parallel_requests attempts run at once; the calls within one attempt stay
+    # sequential, so the server never gets more requests than it has slots. In-flight
+    # attempts count against their cell's quota, so no cell is ever overfilled.
+    workers = max(1, int(resolved_config(config)["model"].get("max_parallel_requests") or 1))
+    budget, completed = args.batch_size * args.max_batches, 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        running = {}
+        while True:
+            while len(running) < workers and budget:
+                if unfinished:
+                    attempt_id, attempt = unfinished.pop(0)
+                else:
+                    pending = [cell for cell in order if counts[cell] + in_flight[cell] < cells[cell[0]][cell[1]]]
+                    if not pending:
+                        break
+                    task, register = min(pending, key=lambda c: (cell_attempts[c] / cells[c[0]][c[1]], order.index(c)))
+                    index = cell_attempts[(task, register)]
+                    rows = by_register[register]
+                    attempt = {"task": task, "register": register, "source_id": rows[index % len(rows)]["id"],
+                               "index": index}
+                    attempt_id = f"{next_id:07d}"
+                    next_id += 1
+                    atomic_json(run / "dispatched" / f"{attempt_id}.json", attempt)
+                    cell_attempts[(task, register)] += 1
+                    attempt = {**attempt, "accepted": False}
+                in_flight[(attempt["task"], attempt["register"])] += 1
+                running[pool.submit(run_attempt, attempt_id, attempt)] = attempt_id
+                budget -= 1
+            if not running:
+                break
+            done, _ = wait(running, return_when=FIRST_COMPLETED)
+            for future in sorted(done, key=running.get):
+                attempt_id = running.pop(future)
+                # A backend failure raises here; the dispatch records let a rerun resume.
+                attempt = future.result()
+                cell = (attempt["task"], attempt["register"])
+                in_flight[cell] -= 1
+                if attempt["accepted"]:
+                    counts[cell] += 1
+                atomic_json(run / "attempts" / f"{attempt_id}.json", attempt)
+                completed += 1
+                if completed % args.batch_size == 0:
+                    report = export_build(run, contract, client, manifest, source_dir)
+                    print(f"Instruction build: {report['accepted']}/{args.target} accepted; {report['by_task']}; "
+                          f"{report['by_register']}", flush=True)
     return export_build(run, contract, client, manifest, source_dir)
 
 

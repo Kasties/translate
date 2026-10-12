@@ -224,14 +224,22 @@ tokens and appear in the report. Native passages are assigned to the response
 by code, never copied back from a model-generated field.
 
 The new builder uses the existing OpenAI-compatible backend directly to journal
-per-call usage; legacy generation still uses DataDesigner. Calls are sequential
-in this initial native-data builder. `batch_size` is total candidate attempts,
+per-call usage; legacy generation still uses DataDesigner. Up to
+`model.max_parallel_requests` attempts run at once (`generator.max_parallel_requests`
+in the pipeline, 16 by default); the calls within one attempt stay sequential, so
+the server never gets more requests than that. Attempts in flight count against
+their quota, and an attempt reserves its prompt and native target before review, so
+running attempts concurrently never overfills a quota or exports a duplicate. Set
+it to 1 for one attempt at a time. `batch_size` is total candidate attempts,
 and `max_batches` bounds work per invocation. Rerunning resumes completed calls
-and attempts without paying for them twice. Source/config changes require a new
+and attempts without paying for them twice: each attempt's task, register and
+source are recorded in `dispatched/` before its first call, so an attempt that was
+interrupted in flight is rerun with the same prompts and its journaled calls are
+replayed. Source/config changes require a new
 run; `refresh_inputs` is intentionally unavailable for this path.
 
 Exports are `train.jsonl`, `accepted.jsonl`, `rejected.jsonl`, `report.json`,
-`state.json`, and per-attempt/per-call journals. The fine-tuner's existing strict
+`state.json`, and per-attempt/per-call journals with their dispatch records. The fine-tuner's existing strict
 provenance loader accepts these exports. Its loss remains assistant response and
 EOS only: **all system/user tokens, including generated instructions and literal
 rewrites, have label `-100`**. The eval source split cannot be exported for training.
