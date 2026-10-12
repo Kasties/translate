@@ -302,8 +302,10 @@ def environment() -> dict:
     env = dict(os.environ)
     cache = ROOT / "artifacts/cache"
     env.setdefault("UV_CACHE_DIR", str(cache / "uv"))
-    env["HF_HOME"] = env.get("TDDE19_HF_HOME", str(cache / "huggingface"))
-    env["HF_HUB_CACHE"] = str(Path(env["HF_HOME"]) / "hub")
+    # A machine with a shared model cache sets HF_HUB_CACHE and keeps HF_HOME, which holds the token.
+    if "HF_HUB_CACHE" not in env:
+        env["HF_HOME"] = env.get("TDDE19_HF_HOME", str(cache / "huggingface"))
+        env["HF_HUB_CACHE"] = str(Path(env["HF_HOME"]) / "hub")
     env.setdefault("XDG_CACHE_HOME", str(cache / "xdg"))
     env.setdefault("VLLM_CACHE_ROOT", str(cache / "vllm"))
     env.setdefault("TRITON_CACHE_DIR", str(cache / "triton"))

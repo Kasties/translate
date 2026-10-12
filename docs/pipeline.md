@@ -24,7 +24,8 @@ GPU architecture (Blackwell is `sm_120`), the Hugging Face login, free disk
 and ports. The lock files pin torch 2.13 / vLLM 0.30 wheels built for CUDA 13,
 which support Blackwell; only the NVIDIA driver must be recent enough.
 Models and datasets are cached under `artifacts/cache/` (override with
-`TDDE19_HF_HOME`).
+`TDDE19_HF_HOME`). On a machine with a shared Hugging Face cache, export
+`HF_HUB_CACHE` instead; the pipeline then keeps it and leaves `HF_HOME` alone.
 
 ## Run an experiment
 

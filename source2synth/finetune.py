@@ -291,10 +291,12 @@ def train(config: dict, *, max_steps: int = -1, dry_run: bool = False) -> dict:
         raise ValueError(
             f"Output directory is not empty: {output}. Choose a new output_dir."
         )
-    os.environ["HF_HOME"] = os.environ.get(
-        "TDDE19_HF_HOME", str(ROOT / "artifacts/cache/huggingface")
-    )
-    os.environ["HF_HUB_CACHE"] = str(Path(os.environ["HF_HOME"]) / "hub")
+    # A machine with a shared model cache sets HF_HUB_CACHE and keeps HF_HOME, which holds the token.
+    if "HF_HUB_CACHE" not in os.environ:
+        os.environ["HF_HOME"] = os.environ.get(
+            "TDDE19_HF_HOME", str(ROOT / "artifacts/cache/huggingface")
+        )
+        os.environ["HF_HUB_CACHE"] = str(Path(os.environ["HF_HOME"]) / "hub")
     # Keep `hf auth login` credentials usable for gated models despite the moved HF_HOME.
     default_token = Path.home() / ".cache/huggingface/token"
     if "HF_TOKEN_PATH" not in os.environ and default_token.is_file():
