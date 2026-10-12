@@ -1,0 +1,14 @@
+# Example run config. Copy it to start your own. Fields are explained in README.md.
+
+suites: [minimal-pair, euroeval]                                           # minimal-pair, euroeval
+minimal_pair_datasets: [Idioms, DaLAJ, ScaLA, Translationese]              # any of these four
+euroeval_datasets: [scala-sv, swedn, skolprov, multi-wiki-qa-sv, swerec]   # any Swedish EuroEval dataset
+full_run: false                                                            # true, false
+upload: false                                                              # true, false
+
+models:
+  - reference: HuggingFaceTB/SmolLM2-135M-Instruct                         # repo id or local folder
+    revision: "12fd25f77366fa6b3b4b768ec3050bf629380bac"                   # commit hash
+    model_family: HuggingFaceTB/SmolLM2-135M                               # base model
+    training_data: seed-grounded                                           # seed-grounded, translated, MAGPIE, control
+    training_method: full                                                  # full, lora

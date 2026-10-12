@@ -259,3 +259,11 @@ implements direct curated-data training and benchmarking. Imputation and the
 paper's complete two-stage training procedure remain unimplemented. A slice1 run
 curated by the original base model is a baseline, not the paper's intermediate-model
 curation stage.
+
+## Evaluation of checkpoints
+
+[evaluation/](evaluation/README.md) scores merged checkpoints on the Swedish minimal-pair suite and EuroEval, and collects every run in one results table.
+
+## License
+
+The project is licensed under the MIT license (https://opensource.org/license/mit).
