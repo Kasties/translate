@@ -1,0 +1,9 @@
+# Source passages from a Hugging Face dataset instead of Korp.
+# Topics come from the nlu.topics keywords in configs/source2synth.yaml.
+data:
+  source: hf
+  hf:
+    dataset: wikimedia/wikipedia
+    subset: 20231101.sv
+    max_documents: 30000
+    license: CC-BY-SA-4.0

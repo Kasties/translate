@@ -1,154 +1,269 @@
-<<<<<<< HEAD
-# Swedish Source2Synth with Korp and DataDesigner
+# Swedish Source2Synth: Korp → EuroEval NLU
 
-This project turns **Svenska Wikipedia (`WIKIPEDIA-SV`) in Korp** into source-grounded Swedish two-hop question answering data, using the installed **NVIDIA NeMo DataDesigner 0.9.2**. Generation, imputation, independent solving, and quality review use DataDesigner LLM columns followed by schema-validated custom columns.
+This project uses [NeMo DataDesigner](https://docs.nvidia.com/nemo/datadesigner/) to construct and curate Swedish synthetic examples grounded in [Svenska Wikipedia in Korp](https://spraakbanken.gu.se/korp/#?corpus=wikipedia-sv). The earlier two-document QA pipeline and its method are preserved in [the MHQA guide](docs/source2synth-mhqa.md). This workflow adapts the real-source construction and independent solving/curation pattern of [Source2Synth](https://arxiv.org/abs/2409.08239v2); it does not claim to reproduce the paper's fine-tuning results.
 
-The selected corpus is [documented by Språkbanken](https://spraakbanken.gu.se/resurser/wikipedia-sv), [searchable in Korp](https://spraakbanken.gu.se/korp/#?corpus=wikipedia-sv), and identified by [DOI 10.23695/7dz6-ek80](https://doi.org/10.23695/7dz6-ek80). Wikipedia is among the corpora whose [sentence order is preserved](https://spraakbanken.gu.se/faq/hur-kan-jag-fa-tillgang-till-icke-meningsomkastade-versioner-av-sprakbankens-korpusar), which makes it suitable for passage-based QA.
+## Quick start: the experiment pipeline
 
-## Quick start
+`./pipeline` runs everything with one command: source passages (Korp, a Hugging Face
+dataset or local files) → synthetic data generation and curation → LoRA fine-tuning →
+EuroEval + idioms benchmarks. It starts and stops the model servers itself and can start
+at any stage, for example fine-tuning a new model on existing data. See
+[the pipeline guide](docs/pipeline.md).
+
+```bash
+bash scripts/setup.sh                 # environments from the lock files + ./pipeline doctor
+./pipeline run smoke-test             # tiny models: checks every stage on a new machine
+./pipeline new                        # pick data + models interactively
+./pipeline run my-exp                 # all stages; rerun to continue
+./pipeline run --name qwen3 --from sft --set sft.model=Qwen/Qwen3-8B-Base \
+    --set sft.train_file=artifacts/source2synth/runs/nlu-1000/train.jsonl
+```
+
+The sections below document the individual commands the pipeline runs.
+
+## Register-first native Swedish targets
+
+`register-native` samples documents by register and multilingual embedding cluster,
+with a configurable 60% instruction backtranslation / 25% idiomatic rewriting /
+10% grounded response / 5% NLU mix. Backtranslation and rewriting use the original
+human passage as the assistant target; generated prompt text stays masked during
+training. Riksdag debates, Wikipedia and Arbetsförmedlingen job ads are sampled from Korp; Litteraturbanken
+(Korp `LB-OPEN`) is configured but off by default. Korp's forum corpora are
+sentence-scrambled, so forum/opinion/advice text needs coherent local exports.
+
+```bash
+uv sync --locked --extra registers
+./pipeline run register-native --only sources
+./pipeline run register-native --from generate
+```
+
+Matched random and keyword baselines, source attribution, resumable generation,
+and diversity per generated token are documented in the
+[register data guide](docs/register-data.md). Existing NLU experiments keep their
+original configuration and commands.
+
+## Local model
+
+The default is [Google's instruction-tuned Gemma 4 12B](https://huggingface.co/google/gemma-4-12B-it)
+with its [matching MTP assistant](https://huggingface.co/google/gemma-4-12B-it-assistant).
+[scripts/setup-local.sh](scripts/setup-local.sh) builds a pinned llama.cpp revision and
+downloads Q8_0 GGUFs published by [the llama.cpp maintainers](https://huggingface.co/ggml-org/gemma-4-12B-it-GGUF),
+pinned to revision `e3e681731089efaa3f0917336944ac64752db8ba`. Both files are verified
+against SHA-256 before use. The instruction-tuned checkpoint supplies its own chat
+template; thinking is disabled for these short structured tasks.
+
+The setup machine has an RTX 4090 with 24 GB VRAM. The target and assistant downloads
+total about 13.1 GB. Requirements: `git`, `cmake`, CUDA toolkit, `uv` and network access.
+The earlier base checkpoint and existing run artifacts are preserved.
 
 ```bash
 uv sync --locked
-uv run python -m source2synth prepare
-uv run python -m source2synth validate
-uv run python -m unittest discover -s tests -v
+bash scripts/setup-local.sh
+bash scripts/serve-local.sh           # leave this terminal running; IT + MTP by default
 ```
 
-`prepare` makes at most 13 public Korp requests before HTTP retries: metadata plus 40 hits for each of 12 editable entities. The default sample is bounded; it does not download the multi-gigabyte corpus. Responses are cached. To rebuild exactly from the saved responses:
+In a second terminal:
 
 ```bash
-uv run python -m source2synth prepare --offline
+uv run python -m source2synth model-check
 ```
 
-The initial extraction produced **327 passages, 40 slice0 pairs, 40 slice1 pairs, and 12 evaluation pairs**. Pair counts can change after a corpus update if the raw cache is replaced. The exact corpus metadata, acquisition time, query URLs, response hashes, revision permalinks where available, and seed hashes are retained locally.
-
-The live NVIDIA smoke test produced **one curated training example** in `artifacts/source2synth/runs/nvidia-curated-final/train.jsonl`, with full source provenance and model outputs in the adjacent `accepted.jsonl`. Its lineage is `nvidia-verified-generation` → `nvidia-verified-curation` → `nvidia-curated-final`. Five source pairs yielded two generation candidates; one survived final curation. Model formatting failures and rejected candidates are recorded separately. This tiny baseline pilot verifies execution, not dataset quality at training scale. No model was fine-tuned.
-
-## NVIDIA generation
-
-Set your key in your shell; it is neither embedded in configuration nor loaded from `.env` automatically. Bash can read it without displaying it or adding it to command history:
+The server listens on `127.0.0.1:8080`; DataDesigner connects to its OpenAI-compatible `/v1` API. To switch GGUF models later, use matching server alias and client ID:
 
 ```bash
-read -rs -p 'NVIDIA API key: ' NVIDIA_API_KEY
-export NVIDIA_API_KEY
-uv run python -m source2synth generate --split slice0 --records 5 --run-name slice0-v1
-uv run python -m source2synth generate --split slice1 --records 5 --run-name slice1-v1
+S2S_GGUF=/absolute/path/other.gguf S2S_MODEL=my-local-model S2S_CHAT_TEMPLATE=auto S2S_SPEC_TYPE=none bash scripts/serve-local.sh
+S2S_MODEL=my-local-model uv run python -m source2synth model-check
+S2S_MODEL=my-local-model uv run python -m source2synth nlu-generate --records 2 --run-name alternative-model
 ```
 
-The default is `nvidia/nemotron-3-super-120b-a12b`, with two concurrent requests, 4,096 output tokens, and thinking disabled for structured output. The installed DataDesigner default, `nvidia/nemotron-3-nano-30b-a3b`, returned HTTP 410 on 2026-09-18: NVIDIA retired that endpoint on September 1. [Super model configuration](https://docs.nvidia.com/nim/large-language-models/2.0.4/turbo/get-started-nemotron-3-super-120b-a12b.html).
+`S2S_MODELS_DIR`, `LLAMA_SERVER`, `S2S_PORT`, `S2S_CONTEXT`, `S2S_PARALLEL`, `S2S_GGUF` and `S2S_MODEL` configure the launcher. `S2S_CHAT_TEMPLATE=auto` uses a replacement GGUF's embedded chat template; otherwise set a Jinja file. `model.id` and `model.endpoint` in [configs/source2synth.yaml](configs/source2synth.yaml) configure DataDesigner. `S2S_MODEL` and `S2S_ENDPOINT` override YAML, or pass `--endpoint` before a CLI subcommand and `--model` to `nlu-generate`/`nlu-curate`. `model-check` catches a mismatched model ID before generation. The local loopback server needs no API key.
 
-Generation makes approximately three model calls per row, plus provider checks and possible retries. Rows may be rejected or dropped; inspect `report.json`, `rejected.jsonl`, and the DataDesigner artifacts. `--records` is a **candidate budget**, not a promised accepted count. Runs use a new directory and refuse to overwrite one. Use `--offset 5 --records 5` to process the next five seeds. Each run exports its own batch; latest-run pointers select only that run, not a concatenation of previous batches.
+### MTP and inference throughput
 
-Run a baseline curation smoke test, using a count no larger than the accepted slice1 count:
+The launcher uses `--spec-type draft-mtp` with the matching assistant GGUF by default,
+three draft tokens, and two server slots with 4096 context tokens each. DataDesigner's
+`model.max_parallel_requests` is also 2. The target verifies the assistant's proposals.
+See [Google's MTP overview](https://ai.google.dev/gemma/docs/mtp/overview) and
+[llama.cpp's speculative decoding documentation](https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md).
+
+`S2S_SPEC_TYPE=none` disables speculation for a baseline; `ngram-simple` needs no
+additional weights. `S2S_DRAFT_TOKENS` controls the draft length. For another compatible
+model, set `S2S_GGUF`, `S2S_MODEL`, and optionally `S2S_MTP_DRAFT`. Models containing
+native MTP heads need no assistant file. The launcher checks server flag support;
+llama.cpp validates architecture/weights on loading. An arbitrary draft model is not
+a matching MTP assistant.
+
+`S2S_CONTEXT` is the **total** context across slots. Increase it when increasing
+`S2S_PARALLEL`, and keep the client's concurrency within the server's slot count.
+Measure your workload before increasing either setting further.
+
+The original `google/gemma-4-12B` base GGUF has no MTP heads. To reproduce the original
+model setup, retaining its explicit role template and using n-gram speculation:
 
 ```bash
-uv run python -m source2synth curate --mode baseline --records 2 --run-name baseline-v1
+S2S_MODEL_PROFILE=base bash scripts/setup-local.sh  # only if the old files are missing
+S2S_MODEL_PROFILE=base bash scripts/serve-local.sh
+S2S_MODEL=google/gemma-4-12B uv run python -m source2synth model-check
 ```
 
-This uses the pretrained instruction model as curator. It is explicitly labeled **baseline**, because it has not undergone the paper's intermediate fine-tuning. Curation makes six model calls per candidate: imputation, recomposition, three independent answers, and quality review, plus checks/retries. A valid run can accept zero rows.
-
-To reapply deterministic filtering to saved curation outputs without additional model calls:
+To compare throughput, restart the server with each setting and run the same benchmark
+while no generation job is running:
 
 ```bash
-uv run python -m source2synth refilter \
-  --source-run artifacts/source2synth/runs/baseline-v1 --run-name refilter-v1
+uv run python scripts/benchmark-local.py --parallel 2 --output artifacts/benchmark.json
 ```
 
-## Method and training boundary
+The benchmark reports end-to-end output tokens/second, timings, JSON completion
+validity and a prompt hash. It warms up the model and disables prompt-cache reuse.
+For an MTP comparison, keep the IT model and parallelism unchanged, changing only
+`S2S_SPEC_TYPE=none` versus `draft-mtp`. To compare the old base setup, launch with
+`S2S_MODEL_PROFILE=base S2S_SPEC_TYPE=none S2S_PARALLEL=1` and benchmark with
+`--model google/gemma-4-12B --parallel 1`. This is a small throughput check, not a
+quality evaluation.
 
-The implementation follows the MHQA branch of [Source2Synth, arXiv:2409.08239v2](https://arxiv.org/abs/2409.08239v2), sections 3.1–3.3:
+## Build and curate NLU data
 
-| Stage | Implementation |
+To request an **exact number of accepted, deduplicated examples**, use `nlu-build`:
+
+```bash
+uv run python -m source2synth nlu-build --target 1000 --batch-size 25 --max-batches 10 --balance-tasks --run-name nlu-1000
+```
+
+`--target` is the final row count; `--batch-size` is the number of candidate rows **per task** in each batch. The command generates and curates repeatedly, then writes `artifacts/source2synth/runs/nlu-1000/train.jsonl` and `report.json`. If it reaches the batch limit first, the report has `complete: false` and the accepted rows are preserved. Continue with the same target, batch size, task selection, split, offset and model settings:
+
+```bash
+uv run python -m source2synth nlu-build --target 1000 --batch-size 25 --max-batches 10 --balance-tasks --run-name nlu-1000 --resume
+```
+
+`--max-batches` limits new batches *per invocation* and may change on resume. Child runs retain the raw DataDesigner responses and rejection reasons. A resumed build reuses completed child runs after an interruption. The final export is capped at exactly `--target`; extra accepted rows from its last batch go to `surplus.jsonl`. With `--balance-tasks`, each task gets an accepted-row quota differing by at most one;
+only deficient tasks receive further generation batches. Excess rows are retained in
+`surplus.jsonl`. This balances task families, not the labels within each family:
+label counts and solver disagreements remain visible in the report. Without this flag,
+the build retains the original total-count behavior. `--tasks`, `--split`, `--offset`, `--model` and `--endpoint` work as with the individual commands. For `--split eval`, the accepted rows are saved without a training export. The expanded Korp pool has 1,267 passages, including 568 in slice1. The defaults fetch
+100 hits per query and keep up to 100 articles per topic/split. Reports and saved
+source metadata retain article provenance; task scheduling also prefers source excerpts
+with relevant entity or answer-type clues.
+
+After changing source data, configuration, implementation, or enabling task balancing on an existing
+build, use an explicit input refresh. Normal `--resume` still rejects changed inputs.
+For the handed-over `nlu-1000` build (offset remains **0** in the command; its saved
+state calculates the next offset automatically):
+
+```bash
+uv run python -m source2synth nlu-build --target 1000 --batch-size 25 --max-batches 20 \
+  --run-name nlu-1000 --resume --refresh-inputs --balance-tasks
+```
+
+Input refresh records old/new source, configuration and implementation fingerprints in `state.json` and
+`report.json`, retains completed child runs, and uses a new child-run namespace so an
+interrupted batch from older inputs cannot be reused accidentally. Existing accepted
+rows remain historical curated examples; refreshing inputs does not re-review them.
+Reaching the batch limit still means `complete: false`, especially if a weak model
+cannot fill the NER quota. Do not infer dataset readiness from total row count alone.
+
+The lower-level commands remain available when you want to inspect each generation and curation step:
+
+```bash
+uv run python -m source2synth prepare-nlu
+uv run python -m source2synth validate-nlu
+uv run python -m source2synth nlu-generate --split slice1 --tasks all --records 12 --run-name nlu-candidates-v1
+uv run python -m source2synth nlu-curate --source-run artifacts/source2synth/runs/nlu-candidates-v1 --run-name nlu-curated-v1
+```
+
+`--records` is a candidate count **per task**, so the example asks for 84 candidates. Start with `--records 1` or `2` for a smoke test. Each run preserves DataDesigner outputs, raw responses, accepted/rejected rows, reasons, model configuration and a report. Curation exports `train.jsonl` with only the requested short label/answer. It may accept zero rows. For Source2Synth's intermediate training slice, generate with `--split slice0`; `uncurated_train.jsonl` is explicitly labeled. Generate slice1 separately, then curate for final training. `--split eval` remains held out and never exports a training file. These scripts prepare data; they do not fine-tune the model.
+
+Use `--offset 12 --records 12` for another batch of seeds. Pass multiple generation run paths after `nlu-curate --source-run` to combine batches from the same split; duplicate inputs and seed IDs are rejected. Every curated row retains its generation run provenance.
+
+If separate curation passes accept complementary rows, merge their accepted outputs without another model call:
+
+```bash
+uv run python -m source2synth nlu-merge --source-run artifacts/source2synth/runs/nlu-curated-v1 artifacts/source2synth/runs/nlu-curated-v2 --run-name nlu-merged
+```
+
+The merge requires one split and removes duplicate seed IDs or task inputs. Its report records each curation run and model ID.
+
+```bash
+uv run python -m source2synth prepare-nlu --offline  # reuse cached Korp responses
+```
+
+`prepare-nlu` samples six topic strata from the same Korp corpus, then keeps at most one passage per article and topic. Article IDs determine the 45/45/10 source split before construction. This is a keyword-conditioned sample, not a representative one, and a matched keyword alone is not a topic label. Candidate schedules cycle labels, topics, styles and difficulty. Reports give accepted counts and label distribution after filtering.
+
+| [EuroEval task](https://euroeval.com/tasks/) | Synthetic example and output |
 | --- | --- |
-| Source and seed | Two different Wikipedia articles with a shared named entity E |
-| Construction | Q1 from D1 answers E; Q2 asks about E in D2; combine into Q |
-| Slice training | Export uncurated slice0 as `train.jsonl` for intermediate supervised fine-tuning |
-| Imputation | Hide Q1; reconstruct it from Q, Q2, E and D1; recompose Q |
-| Answerability | Solve the recomposed Q from D1 and D2 in three independent calls; retain only if at least one answer matches the original |
-| Final training | Export accepted curated slice1 as conversational supervised training data |
+| [Classification](https://euroeval.com/tasks/classification) | Source-grounded topic rewrite → one of six declared topic labels |
+| [Sentiment](https://euroeval.com/tasks/sentiment-classification) | Synthetic anonymous opinion about source facts → `positive`, `neutral`, `negative` |
+| [NER](https://euroeval.com/tasks/named-entity-recognition) | Contiguous source excerpt → per-token BIO labels for person, organisation, place, other |
+| [Linguistic acceptability](https://euroeval.com/tasks/linguistic-acceptability) | Source-grounded sentence and controlled grammar edit → `correct` or `incorrect` |
+| [Reading comprehension](https://euroeval.com/tasks/reading-comprehension) | Unchanged source passage and exact short answer span → answer text |
+| [NLI](https://euroeval.com/tasks/natural-language-inference) | Source-supported premise and controlled hypothesis → `entailment`, `neutral`, `contradiction` |
+| [Grammatical error detection](https://euroeval.com/tasks/grammatical-error-detection) | Verb moved within the same clause → per-token `o`/`b-err` tags |
 
-**Fine-tuning is an external stage, not performed by DataDesigner or this setup.** The repository prepares training data and accepts an already trained and served curator. It does not install a GPU trainer, download model weights, or claim to reproduce the paper's experimental results. To execute the complete training experiment:
+Labels and token formats follow [EuroEval's task definitions](https://github.com/EuroEval/EuroEval/blob/main/src/euroeval/tasks.py). These are **EuroEval-style synthetic examples**, not an official EuroEval dataset or benchmark score. Generic classification uses dataset-specific labels, so the six topics here are a declared local set. GED targets verb placement because that is EuroEval's GED phenomenon. No EuroEval test samples are used as source data.
 
-1. Generate a sufficiently large slice0 and slice1; inspect the accepted and rejected examples.
-2. Train your chosen base model on `artifacts/source2synth/runs/<slice0-run>/train.jsonl` using a trainer that supports the `messages` format. Each response includes two short subanswers, supporting quotes, and the final answer.
-3. Serve the resulting intermediate checkpoint through an OpenAI-compatible endpoint.
-4. Copy `configs/training-manifest.example.json` to a separate file, fill in the actual model/checkpoint/command, and set `slice0_train_sha256` to the **file SHA-256** reported by `sha256sum`.
-5. Run paper-mode curation. The manifest must match both the requested served model ID and the latest slice0 training file. The provenance is a user-supplied record, not an inspection of remote model weights.
+Each accepted row includes source URL, corpus ID, DOI, displayed license, query URL, retrieval timestamp and response hash. NER annotates a fixed excerpt from Korp; reading-comprehension evidence comes from the exact source answer span. Deterministic checks cover source quotes, answer spans, BIO lengths and labels, controlled edits, duplicates and article splits. DataDesigner independently solves and reviews candidates. NER generation and independent solving return entity spans; Python converts both to
+BIO tags. Agreement still requires every entity and type to match, and review must
+pass. Valid BIO positions alone never exempt NER from independent validation. GED
+solving returns error-token indices instead of a long tag array. For controlled
+acceptability edits and verb-placement tags, solver disagreement remains an explicit
+audit field and the semantic review must pass; an edit alone does not prove linguistic
+incorrectness. The unsafe insertion of negation before an arbitrary finite verb has
+been replaced with verb duplication.
 
-```bash
-sha256sum artifacts/source2synth/runs/slice0-v1/train.jsonl
-export S2S_ENDPOINT=http://localhost:8000/v1
-export S2S_API_KEY=local
-uv run python -m source2synth curate --mode paper \
-  --curator-model source2synth-sv-intermediate \
-  --training-manifest /path/to/actual-training-manifest.json \
-  --records 2 --run-name paper-v1
-```
+For reading comprehension, answers are mapped to whole-token source spans to restore
+Korp punctuation spacing and case. Questions may use other Swedish constructions;
+review must verify their requested answer type. Cause answers may use up to 16 words;
+other answers remain capped at 8. Answer matching permits narrow place/time/quantity
+prefix variants, never arbitrary substring overlap, changed numbers, or paraphrases.
+Only solver mismatches with a passing review are retried, up to
+`nlu.curation_attempts` (default 3). Retry prompts never include the proposed answer
+or earlier predictions. All predictions are saved in `prediction_attempts`.
 
-6. Fine-tune a fresh copy of the selected base model on the resulting curated `train.jsonl`. Compare it with the base model and the slice0-trained intermediate model on the same held-out evaluation data. Preserve training commands, versions, hyperparameters, and checkpoints for both training runs.
+Re-curate selected tasks from existing generation runs without paying for generation
+again, for example `nlu-curate --tasks named-entity-recognition reading-comprehension
+--source-run ... --run-name rechecked`. All old candidates are rechecked against
+current deterministic rules before any model call. Model review is fallible, and accepted rows still need human spot checks before serious training or evaluation.
 
-For a basic held-out synthetic QA evaluation:
-
-```bash
-# Return to NVIDIA for reference generation.
-unset S2S_ENDPOINT S2S_API_KEY
-uv run python -m source2synth generate --split eval --records 5 --run-name eval-v1
-uv run python -m source2synth evaluate \
-  --model nvidia/nemotron-3-super-120b-a12b \
-  --records 2 --run-name eval-base-v1
-# Set S2S_ENDPOINT/S2S_API_KEY and repeat evaluate with your served model ID.
-```
-
-Evaluation prompts contain only Q and the documents. Missing predictions count as incorrect. The score is normalized exact match against synthetic reference answers; manually review those references before drawing model-quality conclusions. This is not HotpotQA or an independent human-annotated benchmark.
-
-## Deliberate adaptations and validation
-
-- Swedish passages and prompts replace the paper's English Wikipedia material. Entity-conditioned Korp searches replace hyperlink-based article discovery. The bootstrap vocabulary covers people, institutions, and events; this is not a representative Wikipedia sample.
-- Articles are assigned to 45% slice0 / 45% slice1 / 10% evaluation using a stable hash **before pairing**. The two training seed slices are then capped to equal sizes. Acceptance rates may differ. No source article appears across splits, though shared facts and entities may still occur.
-- Evidence quotes must occur as contiguous tokens in the cited passage; punctuation, case and token order are preserved while typographic spacing is ignored. The bridge must occur in both documents. Same-article pairs, exposed bridge/answer strings, abstentions, invalid schemas, and duplicate questions within a run are rejected.
-- Curation uses normalized exact equality (case/whitespace/punctuation normalization, retaining Swedish accents, and ignoring an optional `den` before a Swedish date) rather than substring matching. No reference answer or original Q1 is included in the independent solver prompts. The model can naturally see the answer in source text.
-- A separate quality review checks grounding, Swedish, consistency of the subquestions, and whether both documents are necessary. This semantic review remains fallible and should be spot-checked. Its access to the reference answer does not affect the independent answerability calls.
-- Model/API errors are recorded in DataDesigner artifacts and incomplete-record counts. Invalid rows are never silently converted into valid QA. Configurations can be compiled without credentials; the behavioral suite mocks the HTTP boundary and exercises the real DataDesigner engine.
-- The custom parser accepts plain JSON or a single Markdown JSON block. This handles valid NVIDIA responses rejected by DataDesigner 0.9.2's fence-only structured parser. It never repairs malformed JSON or fills missing required fields. Raw outputs remain alongside the validated objects for auditing. Exported YAML files are configuration snapshots; use the Python builders/CLI to recreate the custom parser functions.
-
-## Files and outputs
-
-| Path | Purpose |
+| File | Purpose |
 | --- | --- |
-| `configs/source2synth.yaml` | Corpus sampling, model, and filtering settings |
-| `source2synth/korp.py` | Cached API ingestion, provenance, article partitioning, pair building |
-| `source2synth/pipeline.py` | DataDesigner schemas, Swedish prompts, column dependencies |
-| `source2synth/curation.py` | Deterministic checks, rejection reasons, SFT export |
-| `source2synth/__main__.py` | Preparation, validation, generation, curation, evaluation CLI |
-| `data/raw/*.json` | Cached request/response envelopes |
-| `data/prepared/*.parquet` | Source-pair seed datasets |
-| `data/prepared/passages.jsonl` | Extracted real passages and provenance |
-| `data/prepared/manifest.json` | Sampling configuration, source version and hashes |
-| `artifacts/source2synth/configs/` | Compiled DataDesigner YAML configurations; curation/evaluation schema fixtures are not datasets |
-| `artifacts/source2synth/runs/<run>/` | Accepted/rejected JSONL, training JSONL, report, configuration, DataDesigner outputs |
+| [configs/source2synth.yaml](configs/source2synth.yaml) | Source strata and model settings |
+| [source2synth/nlu_sources.py](source2synth/nlu_sources.py) | Korp sampling and candidate schedule |
+| [source2synth/nlu_tasks.py](source2synth/nlu_tasks.py) | Task schemas, validation and short-answer exports |
+| [source2synth/nlu_pipeline.py](source2synth/nlu_pipeline.py) | DataDesigner generation, solving and review |
+| [scripts/setup-local.sh](scripts/setup-local.sh) | llama.cpp build and official model conversion |
+| [scripts/serve-local.sh](scripts/serve-local.sh) | Loopback llama.cpp launcher |
 
-Use `--config`, `--data-dir`, and `--output-dir` **before** the subcommand for separate experiments. `latest_slice0.json`, `latest_slice1.json`, and `latest_eval.json` select the generation runs used by subsequent stages. Use a separate output directory when comparing independent experiments.
+The Korp corpus is listed by Språkbanken under CC-BY-4.0 with [DOI 10.23695/7dz6-ek80](https://doi.org/10.23695/7dz6-ek80). Keep `accepted.jsonl` and the source manifest with shared training data so attribution is retained. The repository license is separate from corpus and model terms.
 
-Generated data and credentials are ignored by Git. Språkbanken lists this corpus under **CC-BY-4.0**; that label, its DOI and source links are propagated. The article URLs and revision permalinks preserve attribution to the underlying Wikipedia material. Keep `accepted.jsonl` and the corpus manifest alongside `train.jsonl` when distributing derivatives: the training-only file intentionally has no extra metadata fields. No blanket license is asserted for newly generated content.
+## Fine-tune with TRL and benchmark with EuroEval
 
-API references: [Korp v8](https://ws.spraakbanken.gu.se/docs/korp), [DataDesigner seed datasets](https://docs.nvidia.com/nemo/datadesigner/concepts/seed-datasets), [model providers](https://docs.nvidia.com/nemo/datadesigner/concepts/models/model-providers).
-=======
-# Swedish, not translated (Group 1)
+The [fine-tuning guide](docs/finetuning.md) provides a one-epoch QLoRA pilot on
+**Gemma 4 12B base**, using the current curated export, followed by a matched
+before/after EuroEval validation comparison on Swedish sentiment and linguistic
+acceptability. Start with `python -m source2synth.finetune --dry-run` to validate
+the data. The guide includes separate training/evaluation environments, GPU
+commands, output locations and the limits of the pilot scores. The same served
+models can also be scored on the [Swedish idioms minimal-pair benchmark](docs/finetuning.md#swedish-idioms-minimal-pairs)
+with `.venv-eval/bin/python -m source2synth.idioms`.
 
-TODO: Overview and introduction to the project. What is it about, what does it consist of, what can it do?
+## Moving to the paper's training stages
 
+The current NLU workflow is an adaptation of Source2Synth, not the paper's MHQA/TQA
+experiment. For the next stage, generate **slice0** and train an intermediate model
+on its `uncurated_train.jsonl`; then serve that checkpoint and independently curate
+**slice1** using `--model`/`--endpoint`, before final training and held-out evaluation.
+The source split is assigned by article before generation, and `eval` never exports
+training data. See [Source2Synth §3.2–3.3](https://arxiv.org/pdf/2409.08239) and the
+[existing MHQA guide](docs/source2synth-mhqa.md). NLU training, imputation, and EuroEval
+execution are separate from these data-preparation commands; the pilot above
+implements direct curated-data training and benchmarking. Imputation and the
+paper's complete two-stage training procedure remain unimplemented. A slice1 run
+curated by the original base model is a baseline, not the paper's intermediate-model
+curation stage.
 
-## Installation instruction
+## Evaluation of checkpoints
 
-TODO
-
-
-## Usage
-
-TODO
-
+[evaluation/](evaluation/README.md) scores merged checkpoints on the Swedish minimal-pair suite and EuroEval, and collects every run in one results table.
 
 ## License
-The project is licensed under the MIT license (https://opensource.org/license/mit).
 
->>>>>>> origin/main
+The project is licensed under the MIT license (https://opensource.org/license/mit).

@@ -1,0 +1,5 @@
+# Skip generation: fine-tune another model on the checked-in NLU dataset.
+#   ./pipeline run configs/pipeline/examples/sft-qwen-on-nlu1000.yaml --from sft
+sft:
+  model: Qwen/Qwen3-8B-Base
+  train_file: artifacts/source2synth/runs/nlu-1000/train.jsonl

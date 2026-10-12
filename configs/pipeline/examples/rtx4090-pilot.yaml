@@ -1,0 +1,14 @@
+# The original 24 GB RTX 4090 setup: llama.cpp generator (Q8_0 GGUF + MTP),
+# 4-bit QLoRA and 4-bit evaluation. Needs scripts/setup-local.sh.
+generator:
+  backend: llamacpp
+  max_parallel_requests: 2
+sft:
+  revision: 023679ed352de9bb66cc873c9009ce3482585c08
+  quantization: nf4
+  batch_size: 1
+  gradient_accumulation_steps: 16
+eval:
+  quantization: bitsandbytes
+  max_num_seqs: 16
+  vllm_args: [--enforce-eager]
