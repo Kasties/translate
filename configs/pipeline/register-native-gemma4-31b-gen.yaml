@@ -1,0 +1,18 @@
+# Like examples/register-native.yaml, with Gemma 4 31B IT as generator, for comparison with
+# korp-gemma4-31b-gen (same generator, legacy NLU data). Its bf16 weights need a 96 GB card.
+#   ./pipeline run configs/pipeline/register-native-gemma4-31b-gen.yaml
+data:
+  source: registers
+generator:
+  model: google/gemma-4-31B-it
+  revision: 842da3794eaa0b77d5f08bae87a17459d91ff475
+datagen:
+  mode: instructions
+  target: 1000
+  batch_size: 25  # total attempts, unlike legacy NLU's per-task batch size
+  max_batches: 100
+  require_complete: true
+sft:
+  require_provenance: true
+eval:
+  port: 8010  # 8000 is taken on balawar
