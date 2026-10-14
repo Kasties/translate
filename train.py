@@ -65,7 +65,11 @@ work_dir = expand(cfg["work_dir"])
 run_name = cfg["run_name"]
 
 train_ds = load_dataset("json", data_files=train_files, split="train")
-val_ds = load_dataset("json", data_files=expand(cfg["validation_file"]), split="train")
+if "validation_size" in cfg:
+    split = train_ds.train_test_split(test_size=cfg["validation_size"], seed=cfg.get("seed", 42))
+    train_ds, val_ds = split["train"], split["test"]
+else:
+    val_ds = load_dataset("json", data_files=expand(cfg["validation_file"]), split="train")
 train_ds = train_ds.map(to_prompt_completion, remove_columns=train_ds.column_names)
 val_ds = val_ds.map(to_prompt_completion, remove_columns=val_ds.column_names)
 
