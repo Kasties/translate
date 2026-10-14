@@ -1,21 +1,42 @@
 import argparse
+import glob
+import os
 
 import torch
+import yaml
 from datasets import load_dataset
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import SFTTrainer, SFTConfig
 
-MODEL_NAME = "google/gemma-3-1b-pt"
-DATA_DIR = "/scratch/muhsh/swedish-ft/muri_data"
-WORK_DIR = "/scratch/muhsh/swedish-ft"
+TEMPLATES = {
+    "gemma3": ("<start_of_turn>", "<end_of_turn>"),
+    "gemma4": ("<|turn>", "<turn|>"),
+}
 
 
-def parse_chunks(text):
-    if "-" in text:
-        start, end = map(int, text.split("-"))
-        return list(range(start, end + 1))
-    return [int(x) for x in text.split(",")]
+def load_config(path):
+    with open(path) as f:
+        cfg = yaml.safe_load(f)
+    if "base" in cfg:
+        base_path = os.path.join(os.path.dirname(path), cfg.pop("base"))
+        base = load_config(base_path)
+        base.update(cfg)
+        cfg = base
+    return cfg
+
+
+def expand(path):
+    return os.path.expandvars(path)
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", required=True)
+args = parser.parse_args()
+cfg = load_config(args.config)
+
+family = "gemma4" if "gemma-4" in cfg["model"].lower() else "gemma3"
+turn_start, turn_end = TEMPLATES[family]
 
 
 def to_prompt_completion(example):
@@ -23,27 +44,34 @@ def to_prompt_completion(example):
     prompt = ""
     for m in messages[:-1]:
         role = "model" if m["role"] == "assistant" else "user"
-        prompt += f"<start_of_turn>{role}\n{m['content']}<end_of_turn>\n"
-    prompt += "<start_of_turn>model\n"
-    completion = messages[-1]["content"] + "<end_of_turn>"
+        prompt += f"{turn_start}{role}\n{m['content']}{turn_end}\n"
+    prompt += f"{turn_start}model\n"
+    completion = messages[-1]["content"] + turn_end
     return {"prompt": prompt, "completion": completion}
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--chunks", default="1")
-parser.add_argument("--epochs", type=float, default=1)
-parser.add_argument("--max_length", type=int, default=1024)
-args = parser.parse_args()
+train_files = []
+for pattern in cfg["train_files"]:
+    train_files += sorted(glob.glob(expand(pattern)))
+if not train_files:
+    raise FileNotFoundError("No training files matched the config")
 
-chunks = parse_chunks(args.chunks)
-run_name = "muri_chunks_" + "_".join(str(c) for c in chunks)
-train_files = [f"{DATA_DIR}/chunks/train_chunk_{c:02d}_of_08.jsonl" for c in chunks]
+batch_size = cfg["batch_size"]
+if cfg["effective_batch_size"] % batch_size != 0:
+    raise ValueError("effective_batch_size must be divisible by batch_size")
+grad_accum = cfg["effective_batch_size"] // batch_size
+
+work_dir = expand(cfg["work_dir"])
+run_name = cfg["run_name"]
 
 train_ds = load_dataset("json", data_files=train_files, split="train")
-val_ds = load_dataset("json", data_files=f"{DATA_DIR}/validation.jsonl", split="train")
+val_ds = load_dataset("json", data_files=expand(cfg["validation_file"]), split="train")
 train_ds = train_ds.map(to_prompt_completion, remove_columns=train_ds.column_names)
 val_ds = val_ds.map(to_prompt_completion, remove_columns=val_ds.column_names)
-print("Train examples", len(train_ds), "Validation examples", len(val_ds))
+
+print("Run", run_name, "Model", cfg["model"])
+print("Train files", len(train_files), "Train examples", len(train_ds), "Validation examples", len(val_ds))
+print("Batch size", batch_size, "Grad accum", grad_accum)
 
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -52,40 +80,46 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_use_double_quant=True,
 )
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(cfg["model"])
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
+    cfg["model"],
     quantization_config=bnb_config,
     device_map="auto",
 )
 
+modules = cfg["lora"]["modules"]
+if family == "gemma4":
+    target_modules = r".*language_model.*\.(" + "|".join(modules) + ")"
+else:
+    target_modules = modules
+
 lora_config = LoraConfig(
-    r=16,
-    lora_alpha=32,
-    lora_dropout=0.05,
+    r=cfg["lora"]["r"],
+    lora_alpha=cfg["lora"]["alpha"],
+    lora_dropout=cfg["lora"]["dropout"],
     bias="none",
     task_type="CAUSAL_LM",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+    target_modules=target_modules,
 )
 
 sft_config = SFTConfig(
-    output_dir=f"{WORK_DIR}/checkpoints/{run_name}",
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
-    gradient_accumulation_steps=4,
-    num_train_epochs=args.epochs,
-    learning_rate=2e-4,
-    lr_scheduler_type="cosine",
-    warmup_steps=20,
-    logging_steps=10,
+    output_dir=f"{work_dir}/checkpoints/{run_name}",
+    per_device_train_batch_size=batch_size,
+    per_device_eval_batch_size=batch_size,
+    gradient_accumulation_steps=grad_accum,
+    num_train_epochs=cfg["epochs"],
+    learning_rate=cfg["learning_rate"],
+    lr_scheduler_type=cfg["lr_scheduler"],
+    warmup_steps=cfg["warmup_steps"],
+    logging_steps=cfg["logging_steps"],
     eval_strategy="steps",
-    eval_steps=25,
+    eval_steps=cfg["eval_steps"],
     save_strategy="steps",
-    save_steps=25,
+    save_steps=cfg["eval_steps"],
     save_total_limit=2,
     load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
-    max_length=args.max_length,
+    max_length=cfg["max_length"],
     bf16=True,
     report_to="none",
 )
@@ -99,8 +133,13 @@ trainer = SFTTrainer(
     processing_class=tokenizer,
 )
 
+trainer.model.print_trainable_parameters()
 trainer.train()
-adapter_dir = f"{WORK_DIR}/outputs/{run_name}"
+
+adapter_dir = f"{work_dir}/outputs/{run_name}"
 trainer.save_model(adapter_dir)
+with open(f"{adapter_dir}/run_config.yaml", "w") as f:
+    yaml.safe_dump(cfg, f)
+
 print("Training done, adapter saved to", adapter_dir)
 print("Peak VRAM GB", round(torch.cuda.max_memory_allocated() / 1e9, 2))

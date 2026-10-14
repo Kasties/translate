@@ -3,7 +3,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_NAME = "google/gemma-3-1b-pt"
-ADAPTER_DIR = "/scratch/muhsh/swedish-ft/outputs/muri_chunks_1"
+ADAPTER_DIR = "/scratch/muhsh/swedish-ft/outputs/muri_chunks_1_2_3_4_5_6_7_8"
 tok = AutoTokenizer.from_pretrained(MODEL_NAME)
 base = AutoModelForCausalLM.from_pretrained(MODEL_NAME, dtype=torch.bfloat16, device_map="cuda")
 base.eval()

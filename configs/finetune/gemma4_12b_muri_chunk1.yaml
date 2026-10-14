@@ -1,0 +1,6 @@
+base: base.yaml
+run_name: gemma4_12b_muri_chunk1
+model: google/gemma-4-12B
+batch_size: 1
+train_files:
+  - /scratch/$USER/swedish-ft/muri_data/chunks/train_chunk_01_of_08.jsonl
