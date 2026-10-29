@@ -15,7 +15,7 @@ import requests
 from .common import ROOT, fingerprint, normalize, write_json, write_jsonl
 from .korp import KorpClient, document_split
 from .nlu_sources import assert_source_disjoint
-from .register_sampling import cluster_documents, diversity, embed_documents, select
+from .register_sampling import cached_embeddings, cluster_documents, diversity, embed_documents, select
 from .sources import iter_hf_records, iter_local_records
 
 
@@ -383,7 +383,8 @@ def quality_reason(text: str, settings: dict) -> str | None:
 def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                       offline: bool = False, embedder=None) -> dict:
     cfg, seed = config["registers"], config["random_seed"]
-    client = KorpClient(cfg["korp_api"], (cache or ROOT / "data/register-cache") / "korp", offline)
+    cache = cache or ROOT / "data/register-cache"
+    client = KorpClient(cfg["korp_api"], cache / "korp", offline)
     rows, rejected, raw_docs = [], Counter(), []
     seen_documents, seen_texts = set(), {}
     for spec in cfg["sources"]:
@@ -447,7 +448,8 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
         raise ValueError("No register passages survived source/quality checks")
     docs = {r["document_id"] for r in rows}
     raw_docs = sorted((d for d in raw_docs if d["id"] in docs), key=lambda d: d["id"])
-    vectors = (embedder or embed_documents)([d["text"] for d in raw_docs], cfg["embedding"])
+    vectors = cached_embeddings([d["text"] for d in raw_docs], cfg["embedding"], cache / "embeddings",
+                                embedder or embed_documents)
     vectors_by_doc = dict(zip([d["id"] for d in raw_docs], vectors))
     # Fit separately per split: held-out text never influences training centroids.
     labels = {}

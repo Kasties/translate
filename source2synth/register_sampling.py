@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter, defaultdict, deque
+from pathlib import Path
 
 import numpy as np
 
@@ -51,6 +52,32 @@ def embed_documents(documents: list[str], settings: dict):
     for owner, vector in zip(owners, encoded):
         pooled[owner] += vector
     return unit_vectors(pooled)
+
+
+def cached_embeddings(texts: list[str], settings: dict, cache_dir: Path, embed=embed_documents) -> np.ndarray:
+    """Vectors for texts in input order; embeds only texts this cache has not seen.
+
+    One file per embedding settings, keyed by text, so every build that shares the
+    cache directory reuses the others' vectors.
+    """
+    path = cache_dir / f"{fingerprint(settings)[:16]}.npz"
+    keys = [fingerprint(text) for text in texts]
+    stored_keys, stored = [], None
+    if path.exists():
+        with np.load(path) as saved:
+            stored_keys, stored = saved["keys"].tolist(), saved["vectors"]
+    index = {key: i for i, key in enumerate(stored_keys)}
+    missing = {key: text for key, text in zip(keys, texts) if key not in index}
+    if missing:
+        fresh = np.asarray(embed(list(missing.values()), settings), dtype=np.float32)
+        stored = fresh if stored is None else np.vstack([stored, fresh])
+        index.update((key, len(stored_keys) + i) for i, key in enumerate(missing))
+        stored_keys += list(missing)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        partial = path.with_suffix(".part.npz")
+        np.savez(partial, keys=np.array(stored_keys), vectors=stored)
+        partial.replace(path)
+    return stored[[index[key] for key in keys]]
 
 
 def cluster_documents(vectors, count: int, seed: int):

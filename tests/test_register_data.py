@@ -21,7 +21,9 @@ from source2synth.instruction_data import (
     CompletionClient, Grounded, Instruction, Review, build_instructions, compare_runs,
     make_example, quotas, register_quotas, review_request, training_record,
 )
-from source2synth.register_sampling import cluster_documents, diversity, efficiency, select
+from source2synth.register_sampling import (
+    cached_embeddings, cluster_documents, diversity, efficiency, embed_documents, select,
+)
 from source2synth.register_sources import (
     hplt_prefix, hplt_records, hplt_site_reason, joined_passages, korp_cqp, korp_quotas, korp_records,
     korp_text, native_passages, prepare_registers, quality_reason,
@@ -75,6 +77,24 @@ class SamplingTests(unittest.TestCase):
         missing = efficiency(metrics, [{"usage": {}}, {"usage": {"completion_tokens": 30}}])
         self.assertIsNone(missing["completion_tokens"])
         self.assertIsNone(missing["per_1000_generated_tokens"]["documents"])
+
+    def test_embedding_cache_embeds_each_text_once_and_keeps_input_order(self):
+        settings, embedded = {"model": "hash-test"}, []
+
+        def embed(texts, settings):
+            embedded.extend(texts)
+            return embed_documents(texts, settings)
+        with tempfile.TemporaryDirectory() as tmp:
+            texts = [f"Text nummer {i} om teater." for i in range(4)]
+            first = cached_embeddings(texts, settings, Path(tmp), embed)
+            calls = len(embedded)
+            again = cached_embeddings(list(reversed(texts)), settings, Path(tmp), embed)
+            self.assertEqual(len(embedded), calls)  # nothing re-embedded
+            mixed = ["Ett nytt stycke.", texts[2], "Ännu ett nytt stycke.", texts[0]]
+            vectors = cached_embeddings(mixed, settings, Path(tmp), embed)
+        self.assertEqual(embedded[calls:], ["Ett nytt stycke.", "Ännu ett nytt stycke."])
+        np.testing.assert_array_equal(again, first[::-1])
+        np.testing.assert_array_equal(vectors, embed_documents(mixed, settings))
 
 
 def korp_tokens(text, head=""):
@@ -288,7 +308,7 @@ class SourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             config = fixture_pool(path)
-            manifest = prepare_registers(config, path / "data")
+            manifest = prepare_registers(config, path / "data", path / "cache")
             passages = read_jsonl(path / "data/nlu/passages.jsonl")
             documents = {d["id"]: d for d in read_jsonl(path / "data/nlu/documents.jsonl")}
             groups = {}
@@ -302,7 +322,7 @@ class SourceTests(unittest.TestCase):
             self.assertGreater(manifest["rejected"].get("duplicate_passage", 0), 0)
             config["registers"]["sources"][0]["coherent"] = False
             with self.assertRaisesRegex(ValueError, "shuffled"):
-                prepare_registers(config, path / "refused")
+                prepare_registers(config, path / "refused", path / "cache")
 
 
 def hplt_doc(doc_id, host, **labels):
@@ -419,7 +439,7 @@ class GenerationTests(unittest.TestCase):
             config = fixture_pool(root)
             config["instruction_data"]["weights"] = {"backtranslation": 0.5, "rewrite": 0.5}
             config["instruction_data"]["register_weights"] = {"debate": 0.5, "fiction": 0.25, "encyclopedia": 0.25}
-            prepare_registers(config, root / "data")
+            prepare_registers(config, root / "data", root / "cache")
             args = argparse.Namespace(data_dir=root / "data", output_dir=root / "output", split="slice1",
                 run_name="shares", target=8, batch_size=4, max_batches=10, resume=False)
             report = build_instructions(config, args, FakeClient)
@@ -436,7 +456,7 @@ class GenerationTests(unittest.TestCase):
             root = Path(tmp)
             config = fixture_pool(root)
             config["instruction_data"]["weights"] = {"backtranslation": 0.6, "rewrite": 0.4}
-            prepare_registers(config, root / "data")
+            prepare_registers(config, root / "data", root / "cache")
             args = argparse.Namespace(data_dir=root / "data", output_dir=root / "output", split="slice1",
                 run_name="resumed", target=10, batch_size=2, max_batches=1, resume=False)
             partial = build_instructions(config, args, FakeClient)

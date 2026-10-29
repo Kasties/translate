@@ -59,7 +59,7 @@ class QualityScoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             config = fixture_pool(path)
-            prepare_registers(config, path / "data")
+            prepare_registers(config, path / "data", path / "cache")
             post, calls = fake_grader()
             with mock.patch("requests.Session.post", side_effect=post):
                 report = grade_passages(config, path / "data", 30)
@@ -78,7 +78,7 @@ class QualityScoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             config = fixture_pool(path)
-            prepare_registers(config, path / "data")
+            prepare_registers(config, path / "data", path / "cache")
             nlu = path / "data/nlu"
             pool = read_jsonl(nlu / "pool.jsonl")
             # Grades follow the register, which the hash-test embedding can see in the text.
