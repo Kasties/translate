@@ -391,6 +391,8 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
     if strategy == "quality" and not cfg["scoring"]["grades"]:
         raise ValueError("Sampling strategy quality needs registers.scoring.grades: run grade-passages "
                          "on a built pool and list its grades.jsonl")
+    if strategy == "quality" and (missing := [g for g in cfg["scoring"]["grades"] if not (ROOT / g).is_file()]):
+        raise ValueError(f"registers.scoring.grades lists missing files: {missing}")
     if strategy == "quality" and cfg["scoring"]["order"] not in SCORED_ORDERS:
         raise ValueError("registers.scoring.order must be balanced or best_first")
     cache = cache or ROOT / "data/register-cache"

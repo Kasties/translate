@@ -116,6 +116,9 @@ class QualityScoringTests(unittest.TestCase):
             config["registers"]["sampling"]["strategy"] = "quality"
             with self.assertRaisesRegex(ValueError, "scoring.grades"):
                 prepare_registers(config, path / "data", path / "cache")
+            config["registers"]["scoring"]["grades"] = [str(path / "absent.jsonl")]
+            with self.assertRaisesRegex(ValueError, "missing files"):
+                prepare_registers(config, path / "data", path / "cache")
             write_jsonl(path / "old.jsonl", [{"id": "p", "register": "debate", "reason": "", "score": 3}])
             config["registers"]["scoring"]["grades"] = [str(path / "old.jsonl")]
             with self.assertRaisesRegex(ValueError, "lack text"):
