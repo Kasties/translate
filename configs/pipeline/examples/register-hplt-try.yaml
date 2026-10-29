@@ -1,0 +1,20 @@
+# A variant of register-hplt with its own folder, artifacts/pipeline/register-hplt-try/.
+# Copy this file under a new name, change name: and the settings, then rebuild with
+#   ./pipeline run register-hplt-try --only sources
+# Downloads, embeddings and grades are cached, so a rebuild takes minutes.
+extends: register-hplt.yaml
+name: register-hplt-try
+# The knobs people change, at their register-hplt values. Uncomment to change one.
+# datagen:
+#   overrides:
+#     registers:
+#       min_words: 150
+#       max_words: 400
+#       sampling:
+#         per_split: 1700
+#       scoring:
+#         floor: 2.0
+#         order: balanced  # or best_first
+#       # max_per_host (20) and max_mt (0.1) sit in the hplt-swe entry of sources. A list
+#       # replaces the parent's list whole, so copy the full sources: block from
+#       # register-hplt.yaml and change them there.

@@ -2,6 +2,7 @@
 # Turku web-register scores; pages scored as machine translated (MT >= max_mt) are
 # dropped and each kept page gets its top register (narrative, opinion, ...).
 # Start with: ./pipeline run register-hplt --only sources
+# To try other settings, copy register-hplt-try.yaml.
 extends: register-native.yaml
 name: register-hplt
 datagen:
@@ -22,7 +23,13 @@ datagen:
       embedding:
         max_chunks_per_document: 4  # web pages run long (docplayer PDFs); 4 spaced chunks per page
       sampling:
+        strategy: quality  # needs scoring.grades; see docs/register-data.md, "Quality scores"
         per_split: 1700  # upper bound; the eval split has fewer documents, so it fills less
+      scoring:
+        grades: [artifacts/pipeline/register-hplt/data/nlu/grades/gemma-4-E2B-it/grades.jsonl]
+        # The E2B scorer favours formal prose, so the score is a junk floor, not a ranking.
+        floor: 2.0
+        order: balanced
       sources:
         - name: hplt-swe
           namespace: hplt
