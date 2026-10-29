@@ -32,11 +32,14 @@ datagen:
           shards: null  # null = every shard in the language map (WDS bins 5-10)
           prefix_mb: 48  # read per shard; shards are single zstd frames sorted by WDS
           max_mt: 0.1  # register classifier's machine-translated score
-          max_per_host: 5  # one site cannot dominate; a host is one split group
+          # One site cannot dominate; a host is one split group. At 20 the ten biggest sites
+          # hold 2.2% of 9,000 pages; uncapped they hold 12.7%, mostly docplayer.
+          max_per_host: 20
           # Content farms that copy or machine-translate Swedish pages: cheap TLDs, and free
           # hosts whose random subdomains slip past max_per_host. Matched as a host suffix.
           blocked_domains: [pw, fun, cc, online, xyz, top, site, club, icu, tk, ml, ga, cf, gq,
-                            buzz, live, netlify.app, web.app, firebaseapp.com]
+                            buzz, live, netlify.app, web.app, firebaseapp.com,
+                            docplayer.se]  # docplayer.se: scraped-PDF farm, 9% of pages uncapped
           # Swedish text on another country's TLD is spam or translated, except Blogspot's
           # regional mirrors of Swedish blogs (name.blogspot.no). A language subdomain
           # (sv.example.com) off these TLDs is a translated copy of a foreign site.
