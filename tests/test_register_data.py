@@ -24,7 +24,7 @@ from source2synth.instruction_data import (
 from source2synth.register_sampling import cluster_documents, diversity, efficiency, select
 from source2synth.register_sources import (
     hplt_prefix, hplt_records, korp_cqp, korp_quotas, korp_records, korp_text, native_passages,
-    prepare_registers,
+    prepare_registers, quality_reason,
 )
 
 TEXT = ("Det är ingen ko på isen, sade hon. Vi får ta en sak i taget och hjälpas åt, "
@@ -174,8 +174,12 @@ class SourceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             spec = {"kind": "hplt", "language": "swe_Latn", "prefix_mb": 1, "max_mt": 0.1, "max_per_host": 2,
+                    "blocked_domains": ["xyz", "netlify.app"],
                     "shards": ["https://hplt.test/9_1.jsonl.zst", "https://hplt.test/8_1.jsonl.zst"]}
             write_hplt_shard(cache, spec["shards"][0], [
+                hplt_doc("farm1", "hurmanblirrik.netlify.app", MT=0.02, IN=0.9),
+                hplt_doc("farm2", "vann-tiofarbror.xyz", MT=0.02, IN=0.9),
+                hplt_doc("lookalike", "netlifyapp.se", MT=0.02, IN=0.9),  # a suffix, not a substring
                 hplt_doc("a1", "a.se", MT=0.02, NA=0.9),
                 hplt_doc("spam", "spam.se", MT=0.88, IN=0.5),
                 hplt_doc("a2", "a.se", MT=0.05, OP=0.8),
@@ -184,11 +188,19 @@ class SourceTests(unittest.TestCase):
             write_hplt_shard(cache, spec["shards"][1], [hplt_doc("b1", "b.se", MT=0.03, HI=0.6)])
             rejected = Counter()
             rows = list(hplt_records(spec, cache, offline=True, rejected=rejected))
-        self.assertEqual([r["id"] for r in rows], ["a1", "b1", "a2"])  # round robin over shards
-        self.assertEqual([r["register"] for r in rows], ["narrative", "how-to", "opinion"])
-        self.assertEqual(rows[0]["group_id"], "a.se")
+        self.assertEqual([r["id"] for r in rows], ["lookalike", "b1", "a1", "a2"])  # round robin over shards
+        self.assertEqual([r["register"] for r in rows], ["informational", "how-to", "narrative", "opinion"])
+        self.assertEqual(rejected["hplt_blocked_domain"], 2)
+        self.assertEqual(rows[2]["group_id"], "a.se")
         self.assertEqual((rejected["hplt_machine_translated"], rejected["hplt_host_cap"]), (1, 1))
         self.assertGreater(rejected["hplt_unlabelled"], 0)  # filler before the cut was still read
+
+    def test_explicit_passages_are_dropped_only_when_enabled(self):
+        erotica = TEXT + " Hon var kåt och tog tag i hans kuk."
+        debate = TEXT + " Porren påverkar unga, och porrkonsumtion diskuteras i skolan."
+        self.assertIsNone(quality_reason(erotica, {}))  # off by default: Korp sources are unchanged
+        self.assertEqual(quality_reason(erotica, {"max_explicit_terms": 1}), "explicit")
+        self.assertIsNone(quality_reason(debate, {"max_explicit_terms": 1}))
 
     def test_hplt_source_builds_a_pool_with_document_registers(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -198,14 +210,21 @@ class SourceTests(unittest.TestCase):
             (path / "cache/hplt").mkdir(parents=True)
             write_hplt_shard(path / "cache/hplt", shard, [
                 {**hplt_doc(f"d{i}", f"site{i}.se", MT=0.02, **{("NA" if i % 2 else "OP"): 0.9}),
-                 "text": TEXT + f" Det hände år {1900 + i}."} for i in range(40)])
+                 "text": TEXT + f" Det hände år {1900 + i}."} for i in range(40)]
+                + [{**hplt_doc("erotica", "noveller.se", MT=0.02, NA=0.9),  # explicit only as a page
+                    "text": TEXT + "\nHan var kåt. " + TEXT + "\nHon tog hans kuk. " + TEXT
+                            + "\nDe knullade. " + TEXT + "\nEn dildo. " + TEXT + "\nMer sperma."}])
+            config["registers"]["quality"].update(max_explicit_terms=1, max_explicit_terms_per_page=4)
             config["registers"]["sources"] = [{
                 "name": "hplt-swe", "kind": "hplt", "language": "swe_Latn", "shards": [shard], "prefix_mb": 1,
-                "max_documents": 40, "coherent": True, "license": "CC0-1.0",
+                "max_documents": 41, "coherent": True, "license": "CC0-1.0",
                 "license_url": "https://example.test/hplt"}]
             manifest = prepare_registers(config, path / "data", path / "cache", offline=True)
             documents = read_jsonl(path / "data/nlu/documents.jsonl")
         self.assertEqual({d["register"] for d in documents}, {"narrative", "opinion"})
+        self.assertEqual(len(documents), 40)
+        self.assertNotIn("https://noveller.se/erotica", {d["url"] for d in documents})
+        self.assertEqual(manifest["rejected"]["explicit_page"], 1)
         self.assertEqual(manifest["empty_registers"], [])
 
     def test_native_substrings_preserve_punctuation_and_dialogue(self):

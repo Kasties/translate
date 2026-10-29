@@ -127,6 +127,19 @@ casino and listicle pages on `.se` domains) that URL filters miss.
   sample of that bin.
 - **Sites:** at most `max_per_host` pages per host, and a host is a split group, so
   one site's pages never appear in both training and evaluation.
+- **Content farms:** `blocked_domains` drops hosts by suffix: cheap TLDs (`xyz`,
+  `fun`, `pw`, …) and `netlify.app` / `web.app`, whose random subdomains get past
+  the host cap. In the first full run these pages copied Swedish news or were
+  machine translated with MT scores under 0.1. Counted as `hplt_blocked_domain`.
+- **Adult content:** `registers.quality.max_explicit_terms` drops a passage with
+  more than that many explicit sexual words (`explicit`), and
+  `max_explicit_terms_per_page` drops a whole page (`explicit_page`), which also
+  catches erotica's milder passages. "porr" is not on the list, since news and
+  debate use it. Both are off by default, so Korp sources are unchanged.
+- **Why the MT cutoff stays at 0.1:** about 90% of kept pages score between 0.05
+  and 0.1, and read samples from the bottom and top of that band were about as
+  often translated (2 and 3 of 15). A cutoff of 0.05 would keep 10% of pages and
+  almost no opinion or discussion pages.
 - **Rights:** HPLT licenses its packaging under CC0; page text keeps its owners'
   rights under [HPLT's terms and takedown policy](https://huggingface.co/datasets/HPLT/HPLT3.0#terms-of-use-and-takedown).
 

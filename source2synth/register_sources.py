@@ -28,6 +28,10 @@ HPLT_DATA = "https://data.hplt-project.org"
 # Top-level Turku web registers. MT (machine translated) is filtered on, never a register.
 HPLT_REGISTERS = {"NA": "narrative", "IN": "informational", "OP": "opinion", "IP": "persuasion",
                   "HI": "how-to", "ID": "discussion", "SP": "spoken", "LY": "lyrical"}
+# Explicit sexual words. "porr" is left out: news and debate about pornography use it.
+EXPLICIT = re.compile(r"\b(?:kuk(?:en|ar|arna)?|fitt(?:a|an|or|orna)|knull\w*|halvstånd\w*|buttplug\w*|"
+                      r"dildo\w*|avsugning\w*|runka\w*|sperma\w*|analsex\w*|kåt|kåta|kåtare|sexfilm\w*|"
+                      r"sexleksak\w*|orgasm\w*|onani\w*)\b", re.IGNORECASE)
 
 
 def sparv_whitespace(value: str | None) -> str:
@@ -221,7 +225,7 @@ def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
     for url in shards:
         path, digest = hplt_prefix(url, int(spec.get("prefix_mb", 32) * 2**20), cache, offline)
         streams.append(((url, digest), hplt_documents(path)))
-    hosts = Counter()
+    hosts, blocked = Counter(), tuple(f".{suffix.lstrip('.')}" for suffix in spec.get("blocked_domains", []))
     while streams:
         live = []
         for (url, digest), documents in streams:
@@ -229,6 +233,8 @@ def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
                 labels, host = doc.get("web-register") or {}, urlsplit(doc["u"]).hostname or ""
                 if not labels:
                     rejected["hplt_unlabelled"] += 1
+                elif f".{host}".endswith(blocked):
+                    rejected["hplt_blocked_domain"] += 1
                 elif labels.get("MT", 1.0) >= spec.get("max_mt", 0.1):
                     rejected["hplt_machine_translated"] += 1
                 elif hosts[host] >= spec.get("max_per_host", 5):
@@ -307,6 +313,9 @@ def quality_reason(text: str, settings: dict) -> str | None:
                    "inte", "jag", "han", "hon", "den", "de", "af", "icke", "hvad", "äro"}
         if len(set(words) & markers) < 2:
             return "no_swedish_markers"
+    limit = settings.get("max_explicit_terms")
+    if limit is not None and len(EXPLICIT.findall(text)) > limit:
+        return "explicit"
     return None
 
 
@@ -331,6 +340,11 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
             text = record.get("text")
             if not isinstance(text, str) or not text.strip():
                 rejected["missing_text"] += 1
+                continue
+            # Erotica also has milder passages; a page this explicit gives none of them.
+            page_limit = cfg.get("quality", {}).get("max_explicit_terms_per_page")
+            if page_limit is not None and len(EXPLICIT.findall(text)) > page_limit:
+                rejected["explicit_page"] += 1
                 continue
             raw_id = str(record.get("id") or fingerprint(text))
             document_id = fingerprint([spec.get("namespace", spec["name"]), raw_id])[:24]
