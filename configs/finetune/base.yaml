@@ -15,5 +15,5 @@ lora:
   modules: [q_proj, k_proj, v_proj, o_proj]
 
 quantization: nf4_4bit
-validation_file: /scratch/$USER/swedish-ft/muri_data/validation.jsonl
+validation_file: /home/$USER/data/muri/validation.jsonl
 work_dir: /scratch/$USER/swedish-ft

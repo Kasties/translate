@@ -1,3 +1,4 @@
+import shutil
 import argparse
 import glob
 import os
@@ -88,7 +89,7 @@ tokenizer = AutoTokenizer.from_pretrained(cfg["model"])
 model = AutoModelForCausalLM.from_pretrained(
     cfg["model"],
     quantization_config=bnb_config,
-    device_map="auto",
+    device_map={"": 0},
 )
 
 modules = cfg["lora"]["modules"]
@@ -144,6 +145,10 @@ adapter_dir = f"{work_dir}/outputs/{run_name}"
 trainer.save_model(adapter_dir)
 with open(f"{adapter_dir}/run_config.yaml", "w") as f:
     yaml.safe_dump(cfg, f)
+
+safe_dir = os.path.expanduser(f"~/adapters/{run_name}")
+shutil.copytree(adapter_dir, safe_dir, dirs_exist_ok=True)
+print("Adapter copy saved to", safe_dir)
 
 print("Training done, adapter saved to", adapter_dir)
 print("Peak VRAM GB", round(torch.cuda.max_memory_allocated() / 1e9, 2))

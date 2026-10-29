@@ -3,4 +3,4 @@ run_name: gemma3_1b_muri_full
 model: google/gemma-3-1b-pt
 batch_size: 4
 train_files:
-  - /scratch/$USER/swedish-ft/muri_data/chunks/train_chunk_*_of_08.jsonl
+  - /home/$USER/data/muri/chunks/train_chunk_*_of_08.jsonl

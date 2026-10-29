@@ -1,0 +1,6 @@
+base: base.yaml
+run_name: gemma4_e4b_muri_chunk1
+model: google/gemma-4-E4B
+batch_size: 2
+train_files:
+  - /home/$USER/data/muri/chunks/train_chunk_01_of_08.jsonl
