@@ -185,6 +185,13 @@ export S2S_ENDPOINT=http://127.0.0.1:8080/v1 S2S_MODEL=google/gemma-4-12B-it  # 
 - **Grader size:** in a pilot on 100 hand-read passages, Gemma 4 E2B gave spam,
   templates and scraped fragments 0 or 1 but rated translated text 3, and called
   many joined passages fragmented. Use Gemma 4 12B for grades that judge translation.
+- **E2B run on register-hplt:** 1,999 grades (mostly 2 and 3). Held-out Spearman
+  0.46, MAE 0.62 against 0.76 for the mean; penalty 1.0 was best of 0.01 to 10.
+  On the 100 hand-read passages, floor 2 drops 5 of 10 problems (all the junk,
+  none of the translations) and 8 of 90 clean ones. It drops 2,386 of 25,695 pool
+  passages; the best-first pick averages 2.85 against 2.57 for random above the
+  floor, with the same 24 clusters. The scorer favours formal prose, so plain
+  personal blog narratives sit near the floor.
 
 To import an authorized local collection:
 
