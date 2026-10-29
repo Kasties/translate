@@ -300,6 +300,30 @@ def native_passages(text: str, minimum: int, maximum: int):
             yield text[chunk_start:last_end], chunk_start, last_end
 
 
+def joined_passages(text: str, minimum: int, maximum: int, min_block_words: int):
+    """Join consecutive paragraphs into exact substrings of minimum..maximum words.
+
+    A paragraph shorter than min_block_words (a menu item, caption or button) ends
+    the run, so joined text never spans page furniture. So does any text between two
+    paragraphs that native_passages dropped, such as one sentence longer than maximum.
+    """
+    run_start = run_end = None
+    words = 0
+    for block, start, end in native_passages(text, 1, maximum):
+        size = len(block.split())
+        if run_start is not None and (size < min_block_words or words + size > maximum
+                                      or text[run_end:start].strip()):
+            run_start, words = None, 0
+        if size < min_block_words:
+            continue
+        if run_start is None:
+            run_start = start
+        run_end, words = end, words + size
+        if words >= minimum:
+            yield text[run_start:run_end], run_start, run_end
+            run_start, words = None, 0
+
+
 def quality_reason(text: str, settings: dict) -> str | None:
     words = re.findall(r"\w+", text.casefold())
     if not words or sum(ch.isalpha() for ch in text) / max(1, len(text)) < 0.55:
@@ -362,7 +386,9 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                    "license_as_listed": record.get("license") or spec.get("license"),
                    "license_url": record.get("license_url") or spec.get("license_url")}
             raw_docs.append(doc)
-            for passage, start, end in native_passages(text, cfg["min_words"], cfg["max_words"]):
+            passages = (joined_passages(text, cfg["min_words"], cfg["max_words"], cfg.get("min_block_words", 8))
+                        if cfg.get("join_paragraphs") else native_passages(text, cfg["min_words"], cfg["max_words"]))
+            for passage, start, end in passages:
                 reason = quality_reason(passage, cfg.get("quality", {}))
                 if reason:
                     rejected[reason] += 1

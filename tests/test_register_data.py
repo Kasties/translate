@@ -23,8 +23,8 @@ from source2synth.instruction_data import (
 )
 from source2synth.register_sampling import cluster_documents, diversity, efficiency, select
 from source2synth.register_sources import (
-    hplt_prefix, hplt_records, korp_cqp, korp_quotas, korp_records, korp_text, native_passages,
-    prepare_registers, quality_reason,
+    hplt_prefix, hplt_records, joined_passages, korp_cqp, korp_quotas, korp_records, korp_text,
+    native_passages, prepare_registers, quality_reason,
 )
 
 TEXT = ("Det är ingen ko på isen, sade hon. Vi får ta en sak i taget och hjälpas åt, "
@@ -226,6 +226,15 @@ class SourceTests(unittest.TestCase):
         self.assertNotIn("https://noveller.se/erotica", {d["url"] for d in documents})
         self.assertEqual(manifest["rejected"]["explicit_page"], 1)
         self.assertEqual(manifest["empty_registers"], [])
+
+    def test_joined_passages_span_paragraphs_but_not_page_furniture(self):
+        para = "Det här är ett stycke med tio ord i sig, ungefär."  # 11 words
+        text = "\n".join([para, para, "Läs mer", para, para, para, "x " * 30 + "slut.", para, para])
+        passages = list(joined_passages(text, 20, 30, 8))
+        self.assertTrue(all(text[s:e] == p for p, s, e in passages))
+        self.assertEqual([len(p.split()) for p, _, _ in passages], [22, 22, 22])
+        self.assertTrue(all("Läs mer" not in p and "x x" not in p for p, _, _ in passages))
+        self.assertEqual(passages[0][0].count("\n"), 1)  # two paragraphs, line break kept
 
     def test_native_substrings_preserve_punctuation_and_dialogue(self):
         text = "Rubrik\n\n— ”Det går väl an”, sade hon; så gick de.\n" + TEXT * 3

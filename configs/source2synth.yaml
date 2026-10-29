@@ -66,6 +66,8 @@ nlu:
 registers:
   min_words: 40
   max_words: 240
+  join_paragraphs: false  # true = join consecutive paragraphs of a page up to min_words..max_words
+  min_block_words: 8  # with join_paragraphs: a shorter paragraph (menu, caption) ends the run
   quality:
     min_unique_word_ratio: 0.25
     swedish_markers: true  # cheap prose heuristic; semantic review also checks Swedish

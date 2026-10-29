@@ -136,6 +136,10 @@ casino and listicle pages on `.se` domains) that URL filters miss.
   `max_explicit_terms_per_page` drops a whole page (`explicit_page`), which also
   catches erotica's milder passages. "porr" is not on the list, since news and
   debate use it. Both are off by default, so Korp sources are unchanged.
+- **Passage length:** `register-hplt` sets `join_paragraphs: true` with 150 to 400
+  words, so a passage is several consecutive paragraphs of one page rather than
+  one paragraph (median 62 words before, 176 after). A paragraph under
+  `min_block_words` (menus, captions, buttons) ends a run. Off by default.
 - **Why the MT cutoff stays at 0.1:** about 90% of kept pages score between 0.05
   and 0.1, and read samples from the bottom and top of that band were about as
   often translated (2 and 3 of 15). A cutoff of 0.05 would keep 10% of pages and

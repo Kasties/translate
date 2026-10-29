@@ -7,6 +7,11 @@ name: register-hplt
 datagen:
   overrides:
     registers:
+      # MURI-style answers are whole texts, not single paragraphs: join a page's
+      # consecutive paragraphs into passages of 150-400 words.
+      min_words: 150
+      max_words: 400
+      join_paragraphs: true
       quality:
         # Erotica and escort ads are native Swedish but not instruction targets.
         max_explicit_terms: 1  # per passage
