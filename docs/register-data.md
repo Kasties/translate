@@ -114,6 +114,9 @@ casino and listicle pages on `.se` domains) that URL filters miss.
 ./pipeline run register-hplt --only sources
 ```
 
+To change a setting, build a new experiment that extends `register-hplt.yaml`; see
+[Quality scores](#quality-scores).
+
 - **Machine translation:** pages with `MT >= max_mt` (default 0.1) are dropped and
   counted as `hplt_machine_translated`. In a 2,000-page sample, pages under 0.1
   read as native Swedish and pages over 0.7 were spam.
@@ -126,11 +129,15 @@ casino and listicle pages on `.se` domains) that URL filters miss.
   so every quality bin (5 to 10) contributes. Pages inside a bin are not a random
   sample of that bin.
 - **Sites:** at most `max_per_host` pages per host, and a host is a split group, so
-  one site's pages never appear in both training and evaluation.
+  one site's pages never appear in both training and evaluation. `register-hplt`
+  sets 20: the ten biggest sites then hold 2.2% of 9,000 pages, against 12.7%
+  uncapped.
 - **Content farms:** `blocked_domains` drops hosts by suffix: cheap TLDs (`xyz`,
   `fun`, `pw`, …) and `netlify.app` / `web.app`, whose random subdomains get past
   the host cap. In the first full run these pages copied Swedish news or were
-  machine translated with MT scores under 0.1. Counted as `hplt_blocked_domain`.
+  machine translated with MT scores under 0.1. `register-hplt` also blocks
+  `docplayer.se`, which serves scraped PDFs and held 9% of pages uncapped.
+  Counted as `hplt_blocked_domain`.
 - **Foreign sites:** with `native_tlds` set, a page on another country's TLD is
   dropped (`hplt_foreign_tld`) unless a host label is in `foreign_tld_exempt`
   (`blogspot`, whose regional mirrors such as `name.blogspot.no` serve Swedish
@@ -150,6 +157,13 @@ casino and listicle pages on `.se` domains) that URL filters miss.
   words, so a passage is several consecutive paragraphs of one page rather than
   one paragraph (median 62 words before, 176 after). A paragraph under
   `min_block_words` (menus, captions, buttons) ends a run. Off by default.
+- **Lead-ins:** with `registers.end_on_colon: false`, a joined passage cannot end
+  on a paragraph ending in ":", since it lost the list or steps it introduces. The
+  run grows into the next paragraph instead, and is dropped if it breaks or passes
+  `max_words`. On by default (passages may end on a colon); `register-hplt` sets false.
+- **Teaser lists:** `registers.quality.max_truncated_lines` drops a passage with
+  that many lines ending in "..." or "…", which are lists of cut-off article
+  teasers (`truncated_lines`). Off by default; `register-hplt` sets 2.
 - **Why the MT cutoff stays at 0.1:** about 90% of kept pages score between 0.05
   and 0.1, and read samples from the bottom and top of that band were about as
   often translated (2 and 3 of 15). A cutoff of 0.05 would keep 10% of pages and
@@ -159,29 +173,57 @@ casino and listicle pages on `.se` domains) that URL filters miss.
 
 ### Quality scores
 
-After a sources stage, three commands score passages the way FineWeb-Edu does: an
-LLM grades a sample, a ridge head on passage embeddings learns the grades, and
-selection takes the best passage first within each register and cluster.
+Quality scores work as in FineWeb-Edu. An LLM grades a sample of passages, and a
+ridge head on passage embeddings learns the grades and scores the whole pool.
+With `registers.sampling.strategy: quality`, the sources stage keeps only
+passages that score at least `registers.scoring.floor`.
+
+Grade once, on a pool that a sources stage built. A first build has no grades yet,
+so give it `--set datagen.overrides.registers.sampling.strategy=balanced`. The
+grader needs a running model:
 
 ```bash
 DATA=artifacts/pipeline/register-hplt
 export S2S_ENDPOINT=http://127.0.0.1:8080/v1 S2S_MODEL=google/gemma-4-12B-it  # any OpenAI-compatible server
 .venv/bin/python -m source2synth --config $DATA/source2synth.yaml --data-dir $DATA/data grade-passages --count 2000
-.venv/bin/python -m source2synth --config $DATA/source2synth.yaml --data-dir $DATA/data score-passages
-.venv/bin/python -m source2synth --config $DATA/source2synth.yaml --data-dir $DATA/data select-scored --floor 2
 ```
+
+This writes `$DATA/data/nlu/grades/<model>/grades.jsonl`, where `<model>` is the
+model id with `/` replaced by `_`. List that file in
+`registers.scoring.grades`, as `register-hplt.yaml` does. After that, any experiment
+that extends `register-hplt.yaml` rebuilds with one command:
+
+```bash
+./pipeline run register-hplt-try --only sources
+```
+
+The rebuild reuses the cached downloads, embeddings and grades. To try other
+settings, copy `register-hplt-try.yaml` under a new name. Each name gets its own
+`artifacts/pipeline/<name>/` folder, so earlier experiments stay as they were.
 
 - **Grades:** a Swedish additive rubric, 0 to 5: coherent standalone text,
   grammatical, natural and untranslated, worth asking about, publishable rather
   than ads or SEO filler. The sample is register- and cluster-balanced and drawn
-  from the training splits only. Every call is journaled in `nlu/grades/calls/`,
-  so a rerun resumes; a new model or prompt needs a new data directory.
-- **Scorer:** `score-passages` holds out 20% of the grades and reports Spearman
-  and mean absolute error against predicting the mean, then fits on all grades
-  and writes `nlu/scores.jsonl` for the whole pool.
-- **Selection:** `select-scored` rewrites `nlu/passages.jsonl` and reports each
-  split's mean score and diversity next to balanced, random, and random above the
-  same floor, so a higher score is not read as more diversity.
+  from the training splits only. Every call is journaled in
+  `nlu/grades/<model>/calls/`, so a rerun resumes. A new prompt needs a new data
+  directory. Each grade row carries its passage text, and scoring matches grades
+  by text, so grades from one build also score a build whose pool differs.
+- **Embeddings:** page and passage vectors are cached by text in
+  `data/register-cache/embeddings/`, one file per `registers.embedding` setting.
+  A build embeds only text that no earlier build embedded. A new `min_words`,
+  `max_words` or paragraph rule changes the passage text, so those passages are
+  embedded again; their pages are not.
+- **Scorer:** holds out `scoring.holdout` (20%) of the grades and reports Spearman
+  and mean absolute error against predicting the mean. It then fits on all grades
+  with ridge penalty `scoring.penalty` and writes `nlu/scores.jsonl` for the whole
+  pool. The agreement goes to `nlu/scores_report.json` and the manifest's `scoring`.
+- **Selection:** each split selects from its passages at or above the floor.
+  `scoring.order: balanced` samples them register- and cluster-balanced, and
+  `best_first` takes the best score first within each register and cluster. The
+  manifest's `comparison` reports each split's mean score and diversity for the
+  chosen order (`quality_balanced` or `quality_best_first`) next to balanced,
+  random, and random above the same floor, so a higher score is not read as more
+  diversity. Strategy `quality` with no grades listed fails before any download.
 - **Grader size:** in a pilot on 100 hand-read passages, Gemma 4 E2B gave spam,
   templates and scraped fragments 0 or 1 but rated translated text 3, and called
   many joined passages fragmented. Use Gemma 4 12B for grades that judge translation.
@@ -191,7 +233,8 @@ export S2S_ENDPOINT=http://127.0.0.1:8080/v1 S2S_MODEL=google/gemma-4-12B-it  # 
   none of the translations) and 8 of 90 clean ones. It drops 2,386 of 25,695 pool
   passages; the best-first pick averages 2.85 against 2.57 for random above the
   floor, with the same 24 clusters. The scorer favours formal prose, so plain
-  personal blog narratives sit near the floor.
+  personal blog narratives sit near the floor. `register-hplt` therefore uses the
+  score as a junk floor and keeps the balanced order.
 
 To import an authorized local collection:
 
@@ -252,6 +295,9 @@ Each source manifest reports three selections from the **same filtered pool**:
 - `keyword`: Wikipedia-only, whole-word matches from the existing six topic
   keyword lists, balanced across topic strata. This is a controlled proxy for
   the legacy sampling rule; it does not recreate Korp's original hit distribution.
+
+With `strategy: quality` the manifest compares balanced, random, random above the
+score floor and the chosen quality order instead; see [Quality scores](#quality-scores).
 
 Every strategy uses the same per-split cap and one passage per document. Shortfalls
 are reported, never filled with duplicates. Korp responses are cached in
