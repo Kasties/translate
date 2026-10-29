@@ -388,13 +388,15 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
     strategy, per_split = cfg["sampling"]["strategy"], cfg["sampling"]["per_split"]
     if strategy not in {"balanced", "random", "keyword", "quality"}:
         raise ValueError("Register sampling strategy must be balanced, random, keyword or quality")
-    if strategy == "quality" and not cfg["scoring"]["grades"]:
-        raise ValueError("Sampling strategy quality needs registers.scoring.grades: run grade-passages "
-                         "on a built pool and list its grades.jsonl")
-    if strategy == "quality" and (missing := [g for g in cfg["scoring"]["grades"] if not (ROOT / g).is_file()]):
-        raise ValueError(f"registers.scoring.grades lists missing files: {missing}")
-    if strategy == "quality" and cfg["scoring"]["order"] not in SCORED_ORDERS:
-        raise ValueError("registers.scoring.order must be balanced or best_first")
+    if strategy == "quality":
+        grades = cfg["scoring"]["grades"]
+        if not grades:
+            raise ValueError("Sampling strategy quality needs registers.scoring.grades: run grade-passages "
+                             "on a built pool and list its grades.jsonl")
+        if missing := [name for name in grades if not (ROOT / name).is_file()]:
+            raise ValueError(f"registers.scoring.grades lists missing files: {missing}")
+        if cfg["scoring"]["order"] not in SCORED_ORDERS:
+            raise ValueError("registers.scoring.order must be balanced or best_first")
     cache = cache or ROOT / "data/register-cache"
     client = KorpClient(cfg["korp_api"], cache / "korp", offline)
     rows, rejected, raw_docs = [], Counter(), []
