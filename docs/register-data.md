@@ -128,7 +128,8 @@ To change a setting, build a new experiment that extends `register-hplt.yaml`; s
   shard under `data/register-cache/hplt/` and takes pages round robin over shards,
   so every quality bin (5 to 10) contributes. Pages inside a bin are not a random
   sample of that bin.
-- **Sites:** at most `max_per_host` pages per host, and a host is a split group, so
+- **Sites:** at most `max_per_host` pages per site (`www.` is ignored, so `www.a.se`
+  and `a.se` are one site), and a site is a split group, so
   one site's pages never appear in both training and evaluation. `register-hplt`
   sets 20: the ten biggest sites then hold 2.2% of 9,000 pages, against 12.7%
   uncapped.
@@ -200,6 +201,10 @@ that extends `register-hplt.yaml` rebuilds with one command:
 The rebuild reuses the cached downloads, embeddings and grades. To try other
 settings, copy `register-hplt-try.yaml` under a new name. Each name gets its own
 `artifacts/pipeline/<name>/` folder, so earlier experiments stay as they were.
+Settings of one source, such as the HPLT site cap, go under
+`registers.source_settings.<source name>`, so an experiment changes one of them
+without copying the whole `sources` list. A warm rebuild that keeps passage text
+(floor, order, site rules) took 26 seconds on the M1.
 
 - **Grades:** a Swedish additive rubric, 0 to 5: coherent standalone text,
   grammatical, natural and untranslated, worth asking about, publishable rather

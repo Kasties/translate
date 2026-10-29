@@ -261,18 +261,19 @@ def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
         for (url, digest), documents in streams:
             for doc in documents:
                 labels, host = doc.get("web-register") or {}, urlsplit(doc["u"]).hostname or ""
+                site = host.removeprefix("www.")  # www.example.se and example.se are one site
                 if not labels:
                     rejected["hplt_unlabelled"] += 1
                 elif reason := hplt_site_reason(host, spec):
                     rejected[reason] += 1
                 elif labels.get("MT", 1.0) >= spec.get("max_mt", 0.1):
                     rejected["hplt_machine_translated"] += 1
-                elif hosts[host] >= spec.get("max_per_host", 5):
+                elif hosts[site] >= spec.get("max_per_host", 5):
                     rejected["hplt_host_cap"] += 1
                 else:
-                    hosts[host] += 1
+                    hosts[site] += 1
                     yield {"id": doc["id"], "text": doc["text"], "url": doc["u"], "date": doc["ts"],
-                           "group_id": host, "register": hplt_register(labels),
+                           "group_id": site, "register": hplt_register(labels),
                            "hplt_mt": labels["MT"], "hplt_wds": doc["doc_scores"][0],
                            "hplt_crawl": doc["crawl_id"], "warc_file": doc["f"], "warc_offset": doc["o"],
                            "query_url": url, "response_sha256": digest,
@@ -401,7 +402,11 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
     client = KorpClient(cfg["korp_api"], cache / "korp", offline)
     rows, rejected, raw_docs = [], Counter(), []
     seen_documents, seen_texts = set(), {}
+    settings = cfg.get("source_settings") or {}
+    if unknown := set(settings) - {spec["name"] for spec in cfg["sources"]}:
+        raise ValueError(f"registers.source_settings names unknown sources: {sorted(unknown)}")
     for spec in cfg["sources"]:
+        spec = {**spec, **settings.get(spec["name"], {})}
         if not spec.get("enabled", True):
             continue
         # HPLT labels each document's register; other kinds take the source's.

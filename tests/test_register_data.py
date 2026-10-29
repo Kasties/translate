@@ -203,7 +203,7 @@ class SourceTests(unittest.TestCase):
                 hplt_doc("a1", "a.se", MT=0.02, NA=0.9),
                 hplt_doc("spam", "spam.se", MT=0.88, IN=0.5),
                 hplt_doc("a2", "a.se", MT=0.05, OP=0.8),
-                hplt_doc("a3", "a.se", MT=0.01, IN=0.7),  # third page of a.se: over the host cap
+                hplt_doc("a3", "www.a.se", MT=0.01, IN=0.7),  # third page of a.se: over the host cap
             ], truncate=True)
             write_hplt_shard(cache, spec["shards"][1], [hplt_doc("b1", "b.se", MT=0.03, HI=0.6)])
             rejected = Counter()
@@ -214,6 +214,19 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(rows[2]["group_id"], "a.se")
         self.assertEqual((rejected["hplt_machine_translated"], rejected["hplt_host_cap"]), (1, 1))
         self.assertGreater(rejected["hplt_unlabelled"], 0)  # filler before the cut was still read
+
+    def test_source_settings_change_one_source_without_copying_the_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            config = fixture_pool(path)
+            config["registers"]["source_settings"] = {"fiction": {"max_documents": 5}}
+            prepare_registers(config, path / "data", path / "cache")
+            documents = read_jsonl(path / "data/nlu/documents.jsonl")
+            config["registers"]["source_settings"] = {"poetry": {"max_documents": 5}}
+            with self.assertRaisesRegex(ValueError, "unknown sources"):
+                prepare_registers(config, path / "refused", path / "cache")
+        self.assertEqual(Counter(d["register"] for d in documents),
+                         {"fiction": 5, "debate": 30, "encyclopedia": 30})
 
     def test_hplt_site_rules_keep_swedish_hosts_and_blogspot_mirrors(self):
         spec = {"blocked_domains": ["xyz", "firebaseapp.com"], "native_tlds": ["se", "nu", "fi", "ax", "eu"],

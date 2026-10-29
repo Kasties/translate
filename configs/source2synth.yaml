@@ -100,6 +100,9 @@ registers:
   # whitespace. Korp scrambles the sentences of its forum and news corpora
   # (Flashback, Familjeliv, SVT, 8 Sidor); such corpora are detected and refused.
   korp_api: https://ws.spraakbanken.gu.se/ws/korp/v8
+  # Per-source settings by source name, laid over its sources entry, so an experiment
+  # can change one (hplt-swe: {max_per_host: 10}) without copying the whole list.
+  source_settings: {}
   sources:
     - name: riksdag-debates
       namespace: riksdag
