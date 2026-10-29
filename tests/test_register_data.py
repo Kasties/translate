@@ -257,6 +257,24 @@ class SourceTests(unittest.TestCase):
         self.assertTrue(all("Läs mer" not in p and "x x" not in p for p, _, _ in passages))
         self.assertEqual(passages[0][0].count("\n"), 1)  # two paragraphs, line break kept
 
+    def test_passages_end_on_a_lead_in_only_when_allowed(self):
+        para = "Det här är ett stycke med tio ord i sig, ungefär."  # 11 words
+        lead = "Det här är ett stycke som slutar med en uppmaning, gör så här:"  # 13 words
+        text = "\n".join([para, lead, para, para])
+        joined = lambda text, end_on_colon: [p for p, _, _ in joined_passages(text, 20, 40, 8, end_on_colon)]
+        self.assertEqual(joined(text, True), [f"{para}\n{lead}", f"{para}\n{para}"])
+        self.assertEqual(joined(text, False), [f"{para}\n{lead}\n{para}"])
+        # A run that breaks after its lead-in is dropped rather than cut back.
+        broken = "\n".join([para, lead, "Läs mer", para, para])
+        self.assertEqual(joined(broken, False), [f"{para}\n{para}"])
+
+    def test_teaser_lists_are_dropped_only_when_enabled(self):
+        teasers = TEXT + "\nHan berättar om resan till fjällen och om det som ...\nHon ger tre råd för en lugnare vardag …"
+        one = TEXT + "\nOch sedan kom det som ingen hade väntat sig ..."
+        self.assertIsNone(quality_reason(teasers, {}))  # off by default
+        self.assertEqual(quality_reason(teasers, {"max_truncated_lines": 2}), "truncated_lines")
+        self.assertIsNone(quality_reason(one, {"max_truncated_lines": 2}))
+
     def test_native_substrings_preserve_punctuation_and_dialogue(self):
         text = "Rubrik\n\n— ”Det går väl an”, sade hon; så gick de.\n" + TEXT * 3
         passages = list(native_passages(text, 8, 60))

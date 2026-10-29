@@ -68,12 +68,14 @@ registers:
   max_words: 240
   join_paragraphs: false  # true = join consecutive paragraphs of a page up to min_words..max_words
   min_block_words: 8  # with join_paragraphs: a shorter paragraph (menu, caption) ends the run
+  end_on_colon: true  # with join_paragraphs: false = a passage never ends on a lead-in line ending in ":"
   quality:
     min_unique_word_ratio: 0.25
     swedish_markers: true  # cheap prose heuristic; semantic review also checks Swedish
     max_explicit_terms: null  # null = off; N drops passages with more than N explicit sexual words
     max_explicit_terms_per_page: null  # null = off; N drops whole pages with more than N
     reject_danish_norwegian: false  # true drops passages with more Danish/Norwegian than Swedish function words
+    max_truncated_lines: null  # null = off; N drops passages with N or more lines ending in "..." (teaser lists)
   embedding:
     model: intfloat/multilingual-e5-small
     revision: null  # pin a Hub commit for published experiments; vectors are saved

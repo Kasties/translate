@@ -328,12 +328,14 @@ def native_passages(text: str, minimum: int, maximum: int):
             yield text[chunk_start:last_end], chunk_start, last_end
 
 
-def joined_passages(text: str, minimum: int, maximum: int, min_block_words: int):
+def joined_passages(text: str, minimum: int, maximum: int, min_block_words: int, end_on_colon: bool = True):
     """Join consecutive paragraphs into exact substrings of minimum..maximum words.
 
     A paragraph shorter than min_block_words (a menu item, caption or button) ends
     the run, so joined text never spans page furniture. So does any text between two
     paragraphs that native_passages dropped, such as one sentence longer than maximum.
+    Without end_on_colon a run cannot end on a lead-in ("Så här gör du:"); it grows
+    into the next paragraph or is dropped.
     """
     run_start = run_end = None
     words = 0
@@ -347,7 +349,7 @@ def joined_passages(text: str, minimum: int, maximum: int, min_block_words: int)
         if run_start is None:
             run_start = start
         run_end, words = end, words + size
-        if words >= minimum:
+        if words >= minimum and (end_on_colon or not block.rstrip().endswith(":")):
             yield text[run_start:run_end], run_start, run_end
             run_start, words = None, 0
 
@@ -372,6 +374,9 @@ def quality_reason(text: str, settings: dict) -> str | None:
         theirs = sum(word in DANISH_NORWEGIAN for word in words)
         if theirs >= 3 and theirs > sum(word in SWEDISH_ONLY for word in words):
             return "danish_or_norwegian"
+    limit = settings.get("max_truncated_lines")
+    if limit is not None and sum(line.rstrip().endswith(("...", "…")) for line in text.splitlines()) >= limit:
+        return "truncated_lines"
     return None
 
 
@@ -418,7 +423,8 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                    "license_as_listed": record.get("license") or spec.get("license"),
                    "license_url": record.get("license_url") or spec.get("license_url")}
             raw_docs.append(doc)
-            passages = (joined_passages(text, cfg["min_words"], cfg["max_words"], cfg.get("min_block_words", 8))
+            passages = (joined_passages(text, cfg["min_words"], cfg["max_words"], cfg.get("min_block_words", 8),
+                                        cfg.get("end_on_colon", True))
                         if cfg.get("join_paragraphs") else native_passages(text, cfg["min_words"], cfg["max_words"]))
             for passage, start, end in passages:
                 reason = quality_reason(passage, cfg.get("quality", {}))

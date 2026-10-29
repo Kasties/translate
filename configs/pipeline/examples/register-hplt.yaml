@@ -12,11 +12,13 @@ datagen:
       min_words: 150
       max_words: 400
       join_paragraphs: true
+      end_on_colon: false  # a passage ending on a lead-in ("Så här gör du:") lost what it introduces
       quality:
         # Erotica and escort ads are native Swedish but not instruction targets.
         max_explicit_terms: 1  # per passage
         max_explicit_terms_per_page: 4  # whole page, which catches compounds like "mansfitta" elsewhere on it
         reject_danish_norwegian: true  # language ID labels some Norwegian pages Swedish
+        max_truncated_lines: 2  # two lines ending in "..." are a list of cut-off teasers, not prose
       embedding:
         max_chunks_per_document: 4  # web pages run long (docplayer PDFs); 4 spaced chunks per page
       sampling:
