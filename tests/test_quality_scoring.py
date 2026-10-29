@@ -1,4 +1,4 @@
-"""LLM grades, the ridge scorer and best-first selection."""
+"""LLM grades, the ridge scorer and quality selection in prepare_registers."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,7 @@ from unittest import mock
 import numpy as np
 
 from source2synth.common import read_jsonl, write_jsonl
-from source2synth.quality_scoring import grade_passages, ridge, score_passages, select_scored, spearman
+from source2synth.quality_scoring import grade_passages, ridge, spearman
 from source2synth.register_sampling import select
 from source2synth.register_sources import prepare_registers
 from test_register_data import fixture_pool, source
@@ -59,44 +59,67 @@ class QualityScoringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             config = fixture_pool(path)
+            config["model"]["id"] = "org/grader-1"
             prepare_registers(config, path / "data", path / "cache")
+            pool = {r["id"]: r for r in read_jsonl(path / "data/nlu/pool.jsonl")}
             post, calls = fake_grader()
             with mock.patch("requests.Session.post", side_effect=post):
                 report = grade_passages(config, path / "data", 30)
                 first = len(calls)
                 again = grade_passages(config, path / "data", 30)
-            grades = read_jsonl(path / "data/nlu/grades/grades.jsonl")
+            grades = read_jsonl(path / "data/nlu/grades/org_grader-1/grades.jsonl")
         self.assertEqual(report["graded"] + report["skipped"], 30)
         self.assertLessEqual(report["skipped"], 1)
         self.assertEqual(len(calls), first)  # the second run replayed every journaled call
         self.assertEqual(again["graded"], report["graded"])
         self.assertEqual({g["score"] for g in grades if g["register"] == "fiction"}, {1})
+        self.assertTrue(all(g["text"] == pool[g["id"]]["text"] for g in grades))
         self.assertEqual(calls[0]["temperature"], 0.0)
         self.assertIn("Du bedömer svenska texter", calls[0]["messages"][0]["content"])
 
-    def test_scores_rank_held_out_passages_and_selection_respects_the_floor(self):
+    def test_quality_strategy_learns_grades_from_another_build_and_keeps_the_floor(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
             config = fixture_pool(path)
-            prepare_registers(config, path / "data", path / "cache")
-            nlu = path / "data/nlu"
-            pool = read_jsonl(nlu / "pool.jsonl")
+            prepare_registers(config, path / "other", path / "cache")
             # Grades follow the register, which the hash-test embedding can see in the text.
-            write_jsonl(nlu / "grades/grades.jsonl", [
-                {"id": r["id"], "register": r["register"], "reason": "", "score": 1 if r["register"] == "fiction" else 4}
-                for r in pool if r["split"] != "eval"])
-            report = score_passages(config, path / "data", penalty=0.1)
-            scores = {s["id"]: s["quality_score"] for s in read_jsonl(nlu / "scores.jsonl")}
-            selection = select_scored(config, path / "data", floor=2.5)
-            passages = read_jsonl(nlu / "passages.jsonl")
-        self.assertGreater(report["agreement"]["spearman"], 0.5)  # two grade levels, many ties
-        self.assertLess(report["agreement"]["mean_absolute_error"],
-                        report["agreement"]["baseline_mean_absolute_error"])
-        self.assertEqual(len(scores), len(pool))
-        self.assertTrue(passages)
-        self.assertTrue(all(scores[p["id"]] >= 2.5 for p in passages))
-        self.assertNotIn("fiction", {p["register"] for p in passages})
-        self.assertIn("slice0/random_above_floor", selection["comparison"])
+            # Their ids belong to no pool: grades are matched by text.
+            write_jsonl(path / "grades.jsonl", [
+                {"id": f"elsewhere-{i}", "register": r["register"], "text": r["text"], "reason": "",
+                 "score": 1 if r["register"] == "fiction" else 4}
+                for i, r in enumerate(read_jsonl(path / "other/nlu/pool.jsonl")) if r["split"] != "eval"])
+            config["registers"]["sampling"]["strategy"] = "quality"
+            config["registers"]["scoring"].update(grades=[str(path / "grades.jsonl")], floor=2.5, penalty=0.1)
+            built = {}
+            for order in ("balanced", "best_first"):
+                config["registers"]["scoring"]["order"] = order
+                manifest = prepare_registers(config, path / order, path / "cache")
+                scores = {s["id"]: s["quality_score"] for s in read_jsonl(path / order / "nlu/scores.jsonl")}
+                built[order] = manifest, scores, read_jsonl(path / order / "nlu/passages.jsonl")
+        for order, (manifest, scores, passages) in built.items():
+            agreement = manifest["scoring"]["agreement"]
+            self.assertGreater(agreement["spearman"], 0.5)  # two grade levels, many ties
+            self.assertLess(agreement["mean_absolute_error"], agreement["baseline_mean_absolute_error"])
+            self.assertEqual(manifest["scoring"]["floor"], 2.5)
+            self.assertEqual(len(scores), manifest["pool_passages"])
+            self.assertTrue(passages)
+            self.assertEqual(len(passages), manifest["passages"])
+            self.assertTrue(all(scores[p["id"]] >= 2.5 for p in passages))
+            self.assertNotIn("fiction", {p["register"] for p in passages})
+            for name in ("balanced", "random", "random_above_floor", f"quality_{order}"):
+                self.assertIn("mean_quality_score", manifest["comparison"][f"slice0/{name}"])
+
+    def test_quality_strategy_needs_grades_with_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            config = fixture_pool(path)
+            config["registers"]["sampling"]["strategy"] = "quality"
+            with self.assertRaisesRegex(ValueError, "scoring.grades"):
+                prepare_registers(config, path / "data", path / "cache")
+            write_jsonl(path / "old.jsonl", [{"id": "p", "register": "debate", "reason": "", "score": 3}])
+            config["registers"]["scoring"]["grades"] = [str(path / "old.jsonl")]
+            with self.assertRaisesRegex(ValueError, "lack text"):
+                prepare_registers(config, path / "data", path / "cache")
 
 
 if __name__ == "__main__":

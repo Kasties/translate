@@ -42,10 +42,6 @@ def parser() -> argparse.ArgumentParser:
     grading = commands.add_parser("grade-passages", help="LLM-grade a balanced sample of register passages 0-5")
     grading.add_argument("--count", type=int, default=2000)
     grading.add_argument("--model")
-    scoring = commands.add_parser("score-passages", help="Fit a ridge head on the grades and score every passage")
-    scoring.add_argument("--penalty", type=float, default=1.0)
-    reselect = commands.add_parser("select-scored", help="Reselect passages best-first above a quality score floor")
-    reselect.add_argument("--floor", type=float, required=True)
     instructions = commands.add_parser("instruction-build", help="Build a curated native-target instruction mix")
     instructions.add_argument("--target", type=int, required=True)
     instructions.add_argument("--batch-size", type=int, default=25)
@@ -884,12 +880,6 @@ def main() -> None:
         elif args.command == "grade-passages":
             from .quality_scoring import grade_passages
             report = grade_passages(config, args.data_dir, args.count)
-        elif args.command == "score-passages":
-            from .quality_scoring import score_passages
-            report = score_passages(config, args.data_dir, args.penalty)
-        elif args.command == "select-scored":
-            from .quality_scoring import select_scored
-            report = select_scored(config, args.data_dir, args.floor)
         elif args.command == "instruction-build":
             from .instruction_data import build_instructions
             report = build_instructions(config, args)

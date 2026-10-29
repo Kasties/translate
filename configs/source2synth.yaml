@@ -84,9 +84,17 @@ registers:
     batch_size: 32
     max_chunks_per_document: 16
   sampling:
-    strategy: balanced  # balanced | random | keyword (Wikipedia-only legacy proxy)
+    strategy: balanced  # balanced | random | keyword (Wikipedia-only legacy proxy) | quality (needs scoring.grades)
     clusters: 24
     per_split: 1600  # upper bound; no duplicate documents to fill shortfalls
+  # Used by sampling strategy quality: a ridge head on passage embeddings learns LLM
+  # grades (grade-passages) and scores the pool; selection keeps scores >= floor.
+  scoring:
+    grades: []  # grades.jsonl files, relative to the repo root; matched by text, so any build's grades work
+    floor: 2.0
+    penalty: 1.0  # ridge penalty
+    order: balanced  # balanced = register/cluster balanced above the floor | best_first = best score first
+    holdout: 0.2  # share of grades held out to report agreement
   # kind: korp samples Språkbanken's Korp API, never the original websites. A unit
   # (text, paragraph or page) is one document, rebuilt from Sparv _head/_tail
   # whitespace. Korp scrambles the sentences of its forum and news corpora

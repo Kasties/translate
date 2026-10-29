@@ -38,6 +38,8 @@ SWEDISH_ONLY = {"inte", "jag", "och", "vad", "hur", "varför", "också", "vara",
 EXPLICIT = re.compile(r"\b(?:kuk(?:en|ar|arna)?|fitt(?:a|an|or|orna)|knull\w*|halvstånd\w*|buttplug\w*|"
                       r"dildo\w*|avsugning\w*|runka\w*|sperma\w*|analsex\w*|kåt|kåta|kåtare|sexfilm\w*|"
                       r"sexleksak\w*|orgasm\w*|onani\w*)\b", re.IGNORECASE)
+# Quality selection order above the score floor, as a select() strategy.
+SCORED_ORDERS = {"balanced": "balanced", "best_first": "quality"}
 
 
 def sparv_whitespace(value: str | None) -> str:
@@ -383,6 +385,14 @@ def quality_reason(text: str, settings: dict) -> str | None:
 def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                       offline: bool = False, embedder=None) -> dict:
     cfg, seed = config["registers"], config["random_seed"]
+    strategy, per_split = cfg["sampling"]["strategy"], cfg["sampling"]["per_split"]
+    if strategy not in {"balanced", "random", "keyword", "quality"}:
+        raise ValueError("Register sampling strategy must be balanced, random, keyword or quality")
+    if strategy == "quality" and not cfg["scoring"]["grades"]:
+        raise ValueError("Sampling strategy quality needs registers.scoring.grades: run grade-passages "
+                         "on a built pool and list its grades.jsonl")
+    if strategy == "quality" and cfg["scoring"]["order"] not in SCORED_ORDERS:
+        raise ValueError("registers.scoring.order must be balanced or best_first")
     cache = cache or ROOT / "data/register-cache"
     client = KorpClient(cfg["korp_api"], cache / "korp", offline)
     rows, rejected, raw_docs = [], Counter(), []
@@ -460,20 +470,38 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                                                      cfg["sampling"]["clusters"], seed)))
     for row in rows:
         row["cluster"] = f"{row['split']}:{labels[row['document_id']]}"
-    settings = cfg["sampling"]
+    scoring = None
+    if strategy == "quality":
+        from .quality_scoring import score_rows
+        floor, order = cfg["scoring"]["floor"], cfg["scoring"]["order"]
+        scoring = {**score_rows(rows, cfg, seed, cache / "embeddings", embedder or embed_documents),
+                   "floor": floor, "order": order,
+                   "above_floor": sum(r["quality_score"] >= floor for r in rows)}
     selected, comparison = [], {}
     for split in ("slice0", "slice1", "eval"):
         pool = [r for r in rows if r["split"] == split]
-        for strategy in ("balanced", "random", "keyword"):
-            sample = select(pool, strategy, settings["per_split"], seed, config["nlu"]["topics"])
-            comparison[f"{split}/{strategy}"] = diversity(sample, vectors_by_doc)
-            comparison[f"{split}/{strategy}"]["shortfall"] = max(0, settings["per_split"] - len(sample))
-            if strategy == settings["strategy"]:
+        if scoring:
+            # Random above the same floor shows how much of a gain is the floor, not the order.
+            above = [r for r in pool if r["quality_score"] >= floor]
+            chosen = f"quality_{order}"
+            runs = {"balanced": (pool, "balanced"), "random": (pool, "random"),
+                    "random_above_floor": (above, "random"), chosen: (above, SCORED_ORDERS[order])}
+        else:
+            chosen, runs = strategy, {name: (pool, name) for name in ("balanced", "random", "keyword")}
+        for name, (candidates, how) in runs.items():
+            sample = select(candidates, how, per_split, seed, config["nlu"]["topics"])
+            metrics = comparison[f"{split}/{name}"] = diversity(sample, vectors_by_doc)
+            metrics["shortfall"] = max(0, per_split - len(sample))
+            if scoring:
+                metrics["mean_quality_score"] = (float(np.mean([r["quality_score"] for r in sample]))
+                                                 if sample else None)
+            if name == chosen:
                 selected.extend(sample)
-    if settings["strategy"] not in {"balanced", "random", "keyword"}:
-        raise ValueError("Unknown register sampling strategy")
     assert_source_disjoint(selected)
     out = data_dir / "nlu"
+    if scoring:
+        write_jsonl(out / "scores.jsonl", [{"id": r["id"], "quality_score": r["quality_score"]} for r in rows])
+        write_json(out / "scores_report.json", scoring)
     write_jsonl(out / "documents.jsonl", raw_docs)
     write_jsonl(out / "pool.jsonl", rows)
     write_jsonl(out / "passages.jsonl", selected)
@@ -485,6 +513,7 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                 "embeddings_sha256": embedding_sha, "config": cfg, "random_seed": seed,
                 "korp_corpora": {d["corpus"]: d["corpus_updated"] for d in raw_docs if "corpus_updated" in d},
                 "rejected": dict(rejected), "comparison": comparison,
+                **({"scoring": scoring} if scoring else {}),
                 "empty_registers": sorted({s["register"] for s in cfg["sources"]
                                            if s.get("enabled", True) and s["kind"] != "hplt"}
                                           - {r["register"] for r in rows}),
