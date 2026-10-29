@@ -155,6 +155,21 @@ def register_quotas(task_quotas: dict, weights: dict | None, registers: set[str]
     return {task: largest_remainder(weights, count, "Register") for task, count in task_quotas.items()}
 
 
+# HPLT web registers: which instruction a text of that kind answers. Korp registers
+# (fiction, debate, ...) keep the story-and-debate hint.
+INSTRUCTION_HINTS = {
+    "informational": "Ställ en fråga eller be om en förklaring som texten besvarar.",
+    "narrative": ("Är texten en nyhet: fråga vad som hänt. Är den ett blogginlägg: be om ett inlägg "
+                  "om ämnet. Begär en scen bara om texten är skönlitteratur."),
+    "opinion": "Be om en åsikt eller ett ställningstagande i frågan som texten tar ställning i.",
+    "persuasion": "Be om en övertygande text: ett erbjudande, en annons eller ett argument.",
+    "how-to": "Be om råd eller steg för att göra det som texten beskriver.",
+    "discussion": "Ställ frågan som någon kunde ha skrivit i ett forum och som texten svarar på.",
+}
+STORY_AND_DEBATE_HINT = ("För berättelser och debatt: begär en passande scen, passage eller argumentation,\n"
+                         "utan att låtsas att åsikter är verifierade fakta.")
+
+
 def draft_request(task: str, source: dict, index: int):
     text = source["text"]
     if task == "backtranslation":
@@ -162,8 +177,8 @@ def draft_request(task: str, source: dict, index: int):
 som följande befintliga text redan besvarar väl. Generera ENDAST instruktionen,
 aldrig ett nytt svar. Instruktionen får inte hänvisa till en saknad text, artikel
 eller föregående konversation. Begär inte ett citat eller att texten ska kopieras.
-För berättelser och debatt: begär en passande scen, passage eller argumentation,
-utan att låtsas att åsikter är verifierade fakta. Avvisa fragment utan sammanhang.
+Skriv instruktionen som en riktig användare skulle skriva till en AI-assistent.
+{INSTRUCTION_HINTS.get(source['register'], STORY_AND_DEBATE_HINT)} Avvisa fragment utan sammanhang.
 Register: {source['register']}. Språkperiod: {source.get('era', 'contemporary')}.
 Befintligt svar:\n{text}"""
     if task == "rewrite":

@@ -18,7 +18,7 @@ from source2synth import run as pipeline
 from source2synth.common import fingerprint, read_config, read_jsonl, write_jsonl
 from source2synth.finetune import load_training_rows, tokenize_rows
 from source2synth.instruction_data import (
-    CompletionClient, Grounded, Instruction, Review, build_instructions, compare_runs,
+    CompletionClient, Grounded, Instruction, Review, build_instructions, compare_runs, draft_request,
     make_example, quotas, register_quotas, review_request, training_record,
 )
 from source2synth.register_sampling import (
@@ -496,6 +496,14 @@ class GenerationTests(unittest.TestCase):
             args.split = "eval"
             with self.assertRaisesRegex(ValueError, "Held-out"):
                 build_instructions(config, args, FakeClient)
+
+    def test_backtranslation_asks_for_a_scene_only_for_stories(self):
+        # Regression: HPLT labels news and blogs narrative, and every one got "Beskriv en scen".
+        prompt = lambda register: draft_request("backtranslation", {"register": register, "text": TEXT}, 0)[1]
+        self.assertNotIn("passande scen", prompt("narrative"))
+        self.assertIn("Begär en scen bara om texten är skönlitteratur", prompt("narrative"))
+        self.assertIn("Ställ en fråga", prompt("informational"))
+        self.assertIn("passande scen", prompt("fiction"))  # Korp registers keep the story hint
 
     def test_native_review_shows_target_once_and_schema_is_enforced(self):
         # Regressions: a duplicated source block read as "copied from the source", and
