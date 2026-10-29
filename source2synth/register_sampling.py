@@ -95,10 +95,16 @@ def round_robin(groups: dict) -> list[dict]:
 
 
 def select(rows: list[dict], strategy: str, count: int, seed: int, topics: dict) -> list[dict]:
-    """One passage/document. Balance registers first, clusters within each register."""
+    """One passage/document. Balance registers first, clusters within each register.
+
+    quality is balanced with rows ordered by their quality_score instead of at random.
+    """
     if count < 1:
         raise ValueError("sample size must be positive")
     ordered = sorted(rows, key=lambda row: fingerprint([seed, row["id"]]))
+    if strategy == "quality":
+        # A document is represented by its best-scoring passage, not a random one.
+        ordered.sort(key=lambda row: -row["quality_score"])
     if strategy != "keyword":
         # Pick a representative first, then rank documents. Long documents must
         # not get more lottery tickets merely because they contain more passages.
@@ -117,14 +123,19 @@ def select(rows: list[dict], strategy: str, count: int, seed: int, topics: dict)
                     groups[topic].append(row)
                     break
         ordered = round_robin(groups)
-    elif strategy == "balanced":
+    elif strategy in {"balanced", "quality"}:
         registers = defaultdict(lambda: defaultdict(list))
         for row in ordered:
             registers[row["register"]][row["cluster"]].append(row)
+        if strategy == "quality":
+            # Same register and cluster balance, best-scoring document first in each cluster.
+            for clusters in registers.values():
+                for members in clusters.values():
+                    members.sort(key=lambda row: -row["quality_score"])
         ordered = round_robin({register: round_robin(clusters)
                                for register, clusters in registers.items()})
     elif strategy != "random":
-        raise ValueError("sampling strategy must be balanced, random or keyword")
+        raise ValueError("sampling strategy must be balanced, quality, random or keyword")
     result, seen = [], set()
     for row in ordered:
         if row["document_id"] not in seen:

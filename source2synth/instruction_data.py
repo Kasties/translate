@@ -69,7 +69,8 @@ class CompletionClient:
         self.directory = directory
         self.session = requests.Session()
 
-    def call(self, key: str, prompt: str, schema, max_tokens: int, temperature: float = 0.7):
+    def call(self, key: str, prompt: str, schema, max_tokens: int, temperature: float = 0.7,
+             system: str = SYSTEM):
         path = self.directory / f"{key}.json"
         # Enforce the schema while decoding (llama.cpp grammar / vLLM structured output).
         # With plain json_object the model echoed schema keys ("title": "Review") and
@@ -77,7 +78,7 @@ class CompletionClient:
         response_format = {"type": "json_schema", "json_schema": {
             "name": schema.__name__, "schema": schema.model_json_schema(), "strict": True}}
         body = {**(self.model.get("extra_body") or {}), "model": self.model["id"],
-                "messages": [{"role": "system", "content": SYSTEM},
+                "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": prompt + "\nJSON-schema:\n"
                               + json.dumps(schema.model_json_schema(), ensure_ascii=False)}],
                 "max_tokens": max_tokens, "temperature": temperature, "response_format": response_format}

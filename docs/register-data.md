@@ -157,6 +157,35 @@ casino and listicle pages on `.se` domains) that URL filters miss.
 - **Rights:** HPLT licenses its packaging under CC0; page text keeps its owners'
   rights under [HPLT's terms and takedown policy](https://huggingface.co/datasets/HPLT/HPLT3.0#terms-of-use-and-takedown).
 
+### Quality scores
+
+After a sources stage, three commands score passages the way FineWeb-Edu does: an
+LLM grades a sample, a ridge head on passage embeddings learns the grades, and
+selection takes the best passage first within each register and cluster.
+
+```bash
+DATA=artifacts/pipeline/register-hplt
+export S2S_ENDPOINT=http://127.0.0.1:8080/v1 S2S_MODEL=google/gemma-4-12B-it  # any OpenAI-compatible server
+.venv/bin/python -m source2synth --config $DATA/source2synth.yaml --data-dir $DATA/data grade-passages --count 2000
+.venv/bin/python -m source2synth --config $DATA/source2synth.yaml --data-dir $DATA/data score-passages
+.venv/bin/python -m source2synth --config $DATA/source2synth.yaml --data-dir $DATA/data select-scored --floor 2
+```
+
+- **Grades:** a Swedish additive rubric, 0 to 5: coherent standalone text,
+  grammatical, natural and untranslated, worth asking about, publishable rather
+  than ads or SEO filler. The sample is register- and cluster-balanced and drawn
+  from the training splits only. Every call is journaled in `nlu/grades/calls/`,
+  so a rerun resumes; a new model or prompt needs a new data directory.
+- **Scorer:** `score-passages` holds out 20% of the grades and reports Spearman
+  and mean absolute error against predicting the mean, then fits on all grades
+  and writes `nlu/scores.jsonl` for the whole pool.
+- **Selection:** `select-scored` rewrites `nlu/passages.jsonl` and reports each
+  split's mean score and diversity next to balanced, random, and random above the
+  same floor, so a higher score is not read as more diversity.
+- **Grader size:** in a pilot on 100 hand-read passages, Gemma 4 E2B gave spam,
+  templates and scraped fragments 0 or 1 but rated translated text 3, and called
+  many joined passages fragmented. Use Gemma 4 12B for grades that judge translation.
+
 To import an authorized local collection:
 
 ```yaml
