@@ -1,0 +1,10 @@
+base: base.yaml
+run_name: gemma3_1b_fineweb_v3
+model: google/gemma-3-1b-pt
+batch_size: 4
+train_files:
+  - /scratch/$USER/swedish-ft/seed_data/fineweb_v3.jsonl
+validation_size: 10
+seed: 42
+eval_steps: 2
+logging_steps: 1
