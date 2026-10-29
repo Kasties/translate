@@ -1,0 +1,38 @@
+# Native Swedish web text from HPLT 3.0 instead of Korp. Every HPLT document carries
+# Turku web-register scores; pages scored as machine translated (MT >= max_mt) are
+# dropped and each kept page gets its top register (narrative, opinion, ...).
+# Start with: ./pipeline run register-hplt --only sources
+extends: register-native.yaml
+name: register-hplt
+datagen:
+  overrides:
+    registers:
+      embedding:
+        max_chunks_per_document: 4  # web pages run long (docplayer PDFs); 4 spaced chunks per page
+      sampling:
+        per_split: 1700  # upper bound; the eval split has fewer documents, so it fills less
+      sources:
+        - name: hplt-swe
+          namespace: hplt
+          kind: hplt
+          language: swe_Latn
+          release: three/sorted
+          shards: null  # null = every shard in the language map (WDS bins 5-10)
+          prefix_mb: 48  # read per shard; shards are single zstd frames sorted by WDS
+          max_mt: 0.1  # register classifier's machine-translated score
+          max_per_host: 5  # one site cannot dominate; a host is one split group
+          max_documents: 9000  # round robin over shards
+          era: contemporary
+          coherent: true
+          license: CC0-1.0  # HPLT's packaging; page text keeps its owners' rights (HPLT takedown policy)
+          license_url: https://huggingface.co/datasets/HPLT/HPLT3.0#terms-of-use-and-takedown
+    instruction_data:
+      register_weights:  # every HPLT register needs an entry; 0 excludes it
+        informational: 0.30
+        narrative: 0.25
+        opinion: 0.20
+        persuasion: 0.15
+        discussion: 0.05
+        how-to: 0.05
+        spoken: 0
+        lyrical: 0

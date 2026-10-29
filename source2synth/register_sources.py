@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter
 from itertools import islice
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import numpy as np
+import requests
 
 from .common import ROOT, fingerprint, normalize, write_json, write_jsonl
 from .korp import KorpClient, document_split
@@ -21,6 +24,10 @@ SPARV_WHITESPACE = {"s": " ", "n": "\n", "t": "\t", "r": "\r"}
 ATTRIBUTE = re.compile(r"[a-z][a-z0-9_]*")
 KORP_PAGE = 200
 KORP_SCAN_FACTOR = 20  # units read per requested document before reporting a shortfall
+HPLT_DATA = "https://data.hplt-project.org"
+# Top-level Turku web registers. MT (machine translated) is filtered on, never a register.
+HPLT_REGISTERS = {"NA": "narrative", "IN": "informational", "OP": "opinion", "IP": "persuasion",
+                  "HI": "how-to", "ID": "discussion", "SP": "spoken", "LY": "lyrical"}
 
 
 def sparv_whitespace(value: str | None) -> str:
@@ -161,10 +168,90 @@ def korp_records(spec: dict, client: KorpClient, seed: int, rejected: Counter):
                 break
 
 
+def hplt_prefix(url: str, size: int, cache: Path, offline: bool) -> tuple[Path, str]:
+    """Cache the first `size` bytes of a shard; return the file and its sha256.
+
+    HPLT shards are single zstd frames, so a prefix is the only cheap read. Each shard
+    is sorted by WDS, so a prefix holds that shard's best-formed documents.
+    """
+    path = cache / f"{fingerprint([url, size])[:24]}.jsonl.zst"
+    if not path.exists():
+        if offline:
+            raise FileNotFoundError(f"Missing cached HPLT prefix of {url}: {path}")
+        response = requests.get(url, headers={"Range": f"bytes=0-{size - 1}"}, stream=True, timeout=(10, 90))
+        response.raise_for_status()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_suffix(".part")
+        with partial.open("wb") as handle:
+            for chunk in response.iter_content(1 << 20):
+                handle.write(chunk)
+        partial.rename(path)
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def hplt_documents(path: Path):
+    """Complete JSON lines of a truncated zstd prefix; the cut-off last line is dropped."""
+    import pyarrow as pa
+
+    stream, buffer = pa.CompressedInputStream(pa.OSFile(str(path)), "zstd"), b""
+    try:
+        while chunk := stream.read(1 << 20):
+            *lines, buffer = (buffer + chunk).split(b"\n")
+            yield from (json.loads(line) for line in lines if line.strip())
+    except OSError as error:
+        if "Truncated" not in str(error):
+            raise
+
+
+def hplt_register(labels: dict) -> str:
+    return HPLT_REGISTERS[max(HPLT_REGISTERS, key=lambda code: labels.get(code, 0.0))]
+
+
+def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
+    """Documents from the prefix of every shard of one HPLT 3.0 language, round robin.
+
+    Pages the register classifier scores as machine translated are dropped, as are
+    pages past a per-host cap. A host is the split group: one site never spans splits.
+    """
+    base = f"{HPLT_DATA}/{spec.get('release', 'three/sorted')}"
+    shards = spec.get("shards") or sorted(requests.get(f"{base}/{spec['language']}.map", timeout=(10, 90))
+                                          .text.split(), key=lambda url: url.rsplit("/", 1)[-1])
+    shards = [s if s.startswith("https://") else f"{base}/{spec['language']}/{s}" for s in shards]
+    streams = []
+    for url in shards:
+        path, digest = hplt_prefix(url, int(spec.get("prefix_mb", 32) * 2**20), cache, offline)
+        streams.append(((url, digest), hplt_documents(path)))
+    hosts = Counter()
+    while streams:
+        live = []
+        for (url, digest), documents in streams:
+            for doc in documents:
+                labels, host = doc.get("web-register") or {}, urlsplit(doc["u"]).hostname or ""
+                if not labels:
+                    rejected["hplt_unlabelled"] += 1
+                elif labels.get("MT", 1.0) >= spec.get("max_mt", 0.1):
+                    rejected["hplt_machine_translated"] += 1
+                elif hosts[host] >= spec.get("max_per_host", 5):
+                    rejected["hplt_host_cap"] += 1
+                else:
+                    hosts[host] += 1
+                    yield {"id": doc["id"], "text": doc["text"], "url": doc["u"], "date": doc["ts"],
+                           "group_id": host, "register": hplt_register(labels),
+                           "hplt_mt": labels["MT"], "hplt_wds": doc["doc_scores"][0],
+                           "hplt_crawl": doc["crawl_id"], "warc_file": doc["f"], "warc_offset": doc["o"],
+                           "query_url": url, "response_sha256": digest,
+                           "text_transform": "none (HPLT Trafilatura extraction)"}
+                    live.append(((url, digest), documents))
+                    break
+        streams = live
+
+
 def records(spec: dict, client: KorpClient, seed: int, rejected: Counter):
     kind = spec["kind"]
     if kind == "korp":
         yield from korp_records(spec, client, seed, rejected)
+    elif kind == "hplt":
+        yield from hplt_records(spec, client.cache.parent / "hplt", client.offline, rejected)
     elif kind in {"local", "hf"}:
         iterator = (iter_local_records(spec["path"]) if kind == "local" else
                     iter_hf_records(spec["dataset"], spec.get("subset"), spec.get("split", "train"),
@@ -176,7 +263,7 @@ def records(spec: dict, client: KorpClient, seed: int, rejected: Counter):
             yield {**row, **mapped, "query_url": origin, "response_sha256": digest,
                    "url": mapped["url"] or origin, "text_transform": "none"}
     else:
-        raise ValueError(f"Unknown register source kind {kind!r}; use korp, local or hf")
+        raise ValueError(f"Unknown register source kind {kind!r}; use korp, hplt, local or hf")
 
 
 def native_passages(text: str, minimum: int, maximum: int):
@@ -232,7 +319,8 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
     for spec in cfg["sources"]:
         if not spec.get("enabled", True):
             continue
-        if not spec.get("register") or spec.get("max_documents", 0) < 1:
+        # HPLT labels each document's register; other kinds take the source's.
+        if (not spec.get("register") and spec.get("kind") != "hplt") or spec.get("max_documents", 0) < 1:
             raise ValueError("Every source needs register and positive max_documents")
         if spec.get("coherent") is not True:
             raise ValueError(f"{spec['name']}: require coherent: true; shuffled sentence corpora are unsuitable")
@@ -254,7 +342,8 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                                     str(record.get("group_id") or raw_id)])[:24]
             split = document_split(group_id, seed)
             doc = {**record, "id": document_id, "group_id": group_id, "split": split,
-                   "source_name": spec["name"], "register": spec["register"],
+                   "source_name": spec["name"],
+                   "register": record["register"] if spec["kind"] == "hplt" else spec["register"],
                    "era": spec.get("era", "contemporary"),
                    "license_as_listed": record.get("license") or spec.get("license"),
                    "license_url": record.get("license_url") or spec.get("license_url")}
@@ -316,7 +405,8 @@ def prepare_registers(config: dict, data_dir: Path, cache: Path | None = None,
                 "embeddings_sha256": embedding_sha, "config": cfg, "random_seed": seed,
                 "korp_corpora": {d["corpus"]: d["corpus_updated"] for d in raw_docs if "corpus_updated" in d},
                 "rejected": dict(rejected), "comparison": comparison,
-                "empty_registers": sorted({s["register"] for s in cfg["sources"] if s.get("enabled", True)}
+                "empty_registers": sorted({s["register"] for s in cfg["sources"]
+                                           if s.get("enabled", True) and s["kind"] != "hplt"}
                                           - {r["register"] for r in rows}),
                 "embedding_kind": "test lexical hashing" if cfg["embedding"]["model"] == "hash-test"
                                   else "multilingual document embeddings",

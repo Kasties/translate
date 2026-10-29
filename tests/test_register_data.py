@@ -15,7 +15,7 @@ import numpy as np
 import requests
 
 from source2synth import run as pipeline
-from source2synth.common import read_config, read_jsonl, write_jsonl
+from source2synth.common import fingerprint, read_config, read_jsonl, write_jsonl
 from source2synth.finetune import load_training_rows, tokenize_rows
 from source2synth.instruction_data import (
     CompletionClient, Grounded, Instruction, Review, build_instructions, compare_runs,
@@ -23,7 +23,8 @@ from source2synth.instruction_data import (
 )
 from source2synth.register_sampling import cluster_documents, diversity, efficiency, select
 from source2synth.register_sources import (
-    korp_cqp, korp_quotas, korp_records, korp_text, native_passages, prepare_registers,
+    hplt_prefix, hplt_records, korp_cqp, korp_quotas, korp_records, korp_text, native_passages,
+    prepare_registers,
 )
 
 TEXT = ("Det är ingen ko på isen, sade hon. Vi får ta en sak i taget och hjälpas åt, "
@@ -169,6 +170,44 @@ class SourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "structural"):
             list(korp_records(korp_spec(group_by="forum_id"), FakeKorp(corpora), 42, Counter()))
 
+    def test_hplt_drops_machine_translation_caps_hosts_and_labels_registers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            spec = {"kind": "hplt", "language": "swe_Latn", "prefix_mb": 1, "max_mt": 0.1, "max_per_host": 2,
+                    "shards": ["https://hplt.test/9_1.jsonl.zst", "https://hplt.test/8_1.jsonl.zst"]}
+            write_hplt_shard(cache, spec["shards"][0], [
+                hplt_doc("a1", "a.se", MT=0.02, NA=0.9),
+                hplt_doc("spam", "spam.se", MT=0.88, IN=0.5),
+                hplt_doc("a2", "a.se", MT=0.05, OP=0.8),
+                hplt_doc("a3", "a.se", MT=0.01, IN=0.7),  # third page of a.se: over the host cap
+            ], truncate=True)
+            write_hplt_shard(cache, spec["shards"][1], [hplt_doc("b1", "b.se", MT=0.03, HI=0.6)])
+            rejected = Counter()
+            rows = list(hplt_records(spec, cache, offline=True, rejected=rejected))
+        self.assertEqual([r["id"] for r in rows], ["a1", "b1", "a2"])  # round robin over shards
+        self.assertEqual([r["register"] for r in rows], ["narrative", "how-to", "opinion"])
+        self.assertEqual(rows[0]["group_id"], "a.se")
+        self.assertEqual((rejected["hplt_machine_translated"], rejected["hplt_host_cap"]), (1, 1))
+        self.assertGreater(rejected["hplt_unlabelled"], 0)  # filler before the cut was still read
+
+    def test_hplt_source_builds_a_pool_with_document_registers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            config = fixture_pool(path)
+            shard = "https://hplt.test/9_1.jsonl.zst"
+            (path / "cache/hplt").mkdir(parents=True)
+            write_hplt_shard(path / "cache/hplt", shard, [
+                {**hplt_doc(f"d{i}", f"site{i}.se", MT=0.02, **{("NA" if i % 2 else "OP"): 0.9}),
+                 "text": TEXT + f" Det hände år {1900 + i}."} for i in range(40)])
+            config["registers"]["sources"] = [{
+                "name": "hplt-swe", "kind": "hplt", "language": "swe_Latn", "shards": [shard], "prefix_mb": 1,
+                "max_documents": 40, "coherent": True, "license": "CC0-1.0",
+                "license_url": "https://example.test/hplt"}]
+            manifest = prepare_registers(config, path / "data", path / "cache", offline=True)
+            documents = read_jsonl(path / "data/nlu/documents.jsonl")
+        self.assertEqual({d["register"] for d in documents}, {"narrative", "opinion"})
+        self.assertEqual(manifest["empty_registers"], [])
+
     def test_native_substrings_preserve_punctuation_and_dialogue(self):
         text = "Rubrik\n\n— ”Det går väl an”, sade hon; så gick de.\n" + TEXT * 3
         passages = list(native_passages(text, 8, 60))
@@ -197,6 +236,27 @@ class SourceTests(unittest.TestCase):
             config["registers"]["sources"][0]["coherent"] = False
             with self.assertRaisesRegex(ValueError, "shuffled"):
                 prepare_registers(config, path / "refused")
+
+
+def hplt_doc(doc_id, host, **labels):
+    return {"id": doc_id, "u": f"https://{host}/{doc_id}", "ts": "2021-01-01T00:00:00Z", "text": TEXT,
+            "crawl_id": "CC-MAIN-2021-04", "f": "warc.gz", "o": 0, "doc_scores": [9.9],
+            "web-register": labels}
+
+
+def write_hplt_shard(cache, url, docs, truncate=False):
+    """Write the cached prefix hplt_prefix expects; truncate cuts the zstd frame like a Range read."""
+    import pyarrow as pa
+
+    if truncate:  # megabytes of incompressible unlabelled filler, so the cut loses only filler
+        rng = np.random.default_rng(0)
+        docs = docs + [{**hplt_doc(f"filler{i}", "filler.se"), "web-register": {}, "text": rng.bytes(2048).hex()}
+                       for i in range(2000)]
+    file = cache / f"{fingerprint([url, 2**20])[:24]}.jsonl.zst"
+    with pa.CompressedOutputStream(pa.OSFile(str(file), "wb"), "zstd") as stream:
+        stream.write("".join(json.dumps(d) + "\n" for d in docs).encode())
+    if truncate:
+        file.write_bytes(file.read_bytes()[:-8])
 
 
 def fixture_pool(path):

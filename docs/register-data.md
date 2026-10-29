@@ -67,6 +67,7 @@ fetched from the original websites.
 | Litteraturbanken (`LB-OPEN`) | Configured, opt in | Historical fiction. Random pages of transcribed e-texts (`text_mediatype: etext`, not OCR facsimiles), each with its work's own `text_license`. Pages keep printed line breaks, so few lines reach 40 words until lines are joined. |
 | Forums (Flashback, Familjeliv) | Local coherent-export importer, opt in | Forum. Korp's forum corpora are sentence-scrambled, so they are refused; supply a coherent export with its license and thread `group_id`. |
 | Opinion writing / everyday advice | Local or Hugging Face importer | Add separate source entries and registers with their actual rights metadata. |
+| HPLT 3.0 web (`swe_Latn`) | `register-hplt` experiment | Web pages of every register. Each page's register comes from HPLT's own Turku register scores; pages scored as machine translated are dropped. See [HPLT web text](#hplt-web-text). |
 
 A Korp source names one or more `corpora`, the structural `unit` that becomes one
 document (`text`, `paragraph`, `page`, …), and optionally `min_tokens`,
@@ -100,6 +101,34 @@ Språkbanken lists [RD-PROT](https://sprakbanken.se/resurser/rd-prot),
 CC-BY-4.0; the Wikipedia article text itself is CC BY-SA. Keep attribution and
 applicable share-alike terms when distributing the resulting data. These catalog
 details were checked on 2026-10-03.
+
+### HPLT web text
+
+`kind: hplt` reads [HPLT 3.0](https://huggingface.co/datasets/HPLT/HPLT3.0), a
+cleaned Common Crawl and Internet Archive collection with about 98 million Swedish
+pages. Every page carries scores from a multilingual web register classifier. One of
+the classes is MT, machine translated, which flags the translated spam (pharmacy,
+casino and listicle pages on `.se` domains) that URL filters miss.
+
+```bash
+./pipeline run register-hplt --only sources
+```
+
+- **Machine translation:** pages with `MT >= max_mt` (default 0.1) are dropped and
+  counted as `hplt_machine_translated`. In a 2,000-page sample, pages under 0.1
+  read as native Swedish and pages over 0.7 were spam.
+- **Register:** a kept page gets its highest-scoring top-level register:
+  `informational`, `narrative`, `opinion`, `persuasion`, `discussion`, `how-to`,
+  `spoken` or `lyrical`. `instruction_data.register_weights` needs an entry for each.
+- **Reading:** each shard is one zstd frame sorted by document quality (WDS), so it
+  can only be read from the start. The source caches the first `prefix_mb` of every
+  shard under `data/register-cache/hplt/` and takes pages round robin over shards,
+  so every quality bin (5 to 10) contributes. Pages inside a bin are not a random
+  sample of that bin.
+- **Sites:** at most `max_per_host` pages per host, and a host is a split group, so
+  one site's pages never appear in both training and evaluation.
+- **Rights:** HPLT licenses its packaging under CC0; page text keeps its owners'
+  rights under [HPLT's terms and takedown policy](https://huggingface.co/datasets/HPLT/HPLT3.0#terms-of-use-and-takedown).
 
 To import an authorized local collection:
 
