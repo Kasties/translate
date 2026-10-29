@@ -61,6 +61,10 @@ datagen:
           license_url: https://huggingface.co/datasets/HPLT/HPLT3.0#terms-of-use-and-takedown
     instruction_data:
       register_weights:  # every HPLT register needs an entry; 0 excludes it
+        # The Korp registers of the defaults merge into this map; HPLT has none of them.
+        debate: 0
+        encyclopedia: 0
+        job-ad: 0
         informational: 0.30
         narrative: 0.25
         opinion: 0.20
