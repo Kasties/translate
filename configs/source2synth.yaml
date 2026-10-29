@@ -73,6 +73,7 @@ registers:
     swedish_markers: true  # cheap prose heuristic; semantic review also checks Swedish
     max_explicit_terms: null  # null = off; N drops passages with more than N explicit sexual words
     max_explicit_terms_per_page: null  # null = off; N drops whole pages with more than N
+    reject_danish_norwegian: false  # true drops passages with more Danish/Norwegian than Swedish function words
   embedding:
     model: intfloat/multilingual-e5-small
     revision: null  # pin a Hub commit for published experiments; vectors are saved

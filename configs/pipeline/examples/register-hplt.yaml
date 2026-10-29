@@ -16,6 +16,7 @@ datagen:
         # Erotica and escort ads are native Swedish but not instruction targets.
         max_explicit_terms: 1  # per passage
         max_explicit_terms_per_page: 4  # whole page, which catches compounds like "mansfitta" elsewhere on it
+        reject_danish_norwegian: true  # language ID labels some Norwegian pages Swedish
       embedding:
         max_chunks_per_document: 4  # web pages run long (docplayer PDFs); 4 spaced chunks per page
       sampling:
@@ -33,7 +34,14 @@ datagen:
           # Content farms that copy or machine-translate Swedish pages: cheap TLDs, and free
           # hosts whose random subdomains slip past max_per_host. Matched as a host suffix.
           blocked_domains: [pw, fun, cc, online, xyz, top, site, club, icu, tk, ml, ga, cf, gq,
-                            buzz, live, netlify.app, web.app]
+                            buzz, live, netlify.app, web.app, firebaseapp.com]
+          # Swedish text on another country's TLD is spam or translated, except Blogspot's
+          # regional mirrors of Swedish blogs (name.blogspot.no). A language subdomain
+          # (sv.example.com) off these TLDs is a translated copy of a foreign site.
+          native_tlds: [se, nu, fi, ax, eu]
+          foreign_tld_exempt: [blogspot]
+          language_subdomains: [sv, se, swe]
+          language_subdomain_exempt: [wikipedia.org, wikisource.org]
           max_documents: 9000  # round robin over shards
           era: contemporary
           coherent: true

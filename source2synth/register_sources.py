@@ -28,6 +28,12 @@ HPLT_DATA = "https://data.hplt-project.org"
 # Top-level Turku web registers. MT (machine translated) is filtered on, never a register.
 HPLT_REGISTERS = {"NA": "narrative", "IN": "informational", "OP": "opinion", "IP": "persuasion",
                   "HI": "how-to", "ID": "discussion", "SP": "spoken", "LY": "lyrical"}
+# Function words of Danish/Norwegian with no Swedish homograph, and their Swedish
+# counterparts. Language ID labels some Norwegian pages swe_Latn.
+DANISH_NORWEGIAN = {"ikke", "jeg", "og", "hva", "hvordan", "hvorfor", "hvis", "også", "være", "kanskje",
+                    "mye", "meg", "ble", "fra", "noe", "hvor", "disse"}
+SWEDISH_ONLY = {"inte", "jag", "och", "vad", "hur", "varför", "också", "vara", "kanske", "mycket", "mig",
+                "blev", "från", "något", "var", "denna", "dessa"}
 # Explicit sexual words. "porr" is left out: news and debate about pornography use it.
 EXPLICIT = re.compile(r"\b(?:kuk(?:en|ar|arna)?|fitt(?:a|an|or|orna)|knull\w*|halvstånd\w*|buttplug\w*|"
                       r"dildo\w*|avsugning\w*|runka\w*|sperma\w*|analsex\w*|kåt|kåta|kåtare|sexfilm\w*|"
@@ -211,6 +217,28 @@ def hplt_register(labels: dict) -> str:
     return HPLT_REGISTERS[max(HPLT_REGISTERS, key=lambda code: labels.get(code, 0.0))]
 
 
+def hplt_site_reason(host: str, spec: dict) -> str | None:
+    """Why a host is not a source of native Swedish pages, or None.
+
+    Content farms sit on blocked domains. Swedish text on another country's TLD
+    is spam or translated, except Blogspot's regional mirrors of Swedish blogs. A
+    language subdomain (sv.example.com) off the Swedish-language TLDs is a
+    translated copy of a foreign site.
+    """
+    labels, dotted = host.split("."), f".{host}"
+    if dotted.endswith(tuple(f".{d}" for d in spec.get("blocked_domains", []))):
+        return "hplt_blocked_domain"
+    native = set(spec.get("native_tlds", []))
+    if not native or labels[-1] in native:
+        return None
+    if len(labels[-1]) == 2 and not set(labels) & set(spec.get("foreign_tld_exempt", [])):
+        return "hplt_foreign_tld"
+    if (labels[0] in spec.get("language_subdomains", [])
+            and not dotted.endswith(tuple(f".{d}" for d in spec.get("language_subdomain_exempt", [])))):
+        return "hplt_language_subdomain"
+    return None
+
+
 def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
     """Documents from the prefix of every shard of one HPLT 3.0 language, round robin.
 
@@ -225,7 +253,7 @@ def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
     for url in shards:
         path, digest = hplt_prefix(url, int(spec.get("prefix_mb", 32) * 2**20), cache, offline)
         streams.append(((url, digest), hplt_documents(path)))
-    hosts, blocked = Counter(), tuple(f".{suffix.lstrip('.')}" for suffix in spec.get("blocked_domains", []))
+    hosts = Counter()
     while streams:
         live = []
         for (url, digest), documents in streams:
@@ -233,8 +261,8 @@ def hplt_records(spec: dict, cache: Path, offline: bool, rejected: Counter):
                 labels, host = doc.get("web-register") or {}, urlsplit(doc["u"]).hostname or ""
                 if not labels:
                     rejected["hplt_unlabelled"] += 1
-                elif f".{host}".endswith(blocked):
-                    rejected["hplt_blocked_domain"] += 1
+                elif reason := hplt_site_reason(host, spec):
+                    rejected[reason] += 1
                 elif labels.get("MT", 1.0) >= spec.get("max_mt", 0.1):
                     rejected["hplt_machine_translated"] += 1
                 elif hosts[host] >= spec.get("max_per_host", 5):
@@ -340,6 +368,10 @@ def quality_reason(text: str, settings: dict) -> str | None:
     limit = settings.get("max_explicit_terms")
     if limit is not None and len(EXPLICIT.findall(text)) > limit:
         return "explicit"
+    if settings.get("reject_danish_norwegian"):
+        theirs = sum(word in DANISH_NORWEGIAN for word in words)
+        if theirs >= 3 and theirs > sum(word in SWEDISH_ONLY for word in words):
+            return "danish_or_norwegian"
     return None
 
 

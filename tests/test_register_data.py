@@ -23,8 +23,8 @@ from source2synth.instruction_data import (
 )
 from source2synth.register_sampling import cluster_documents, diversity, efficiency, select
 from source2synth.register_sources import (
-    hplt_prefix, hplt_records, joined_passages, korp_cqp, korp_quotas, korp_records, korp_text,
-    native_passages, prepare_registers, quality_reason,
+    hplt_prefix, hplt_records, hplt_site_reason, joined_passages, korp_cqp, korp_quotas, korp_records,
+    korp_text, native_passages, prepare_registers, quality_reason,
 )
 
 TEXT = ("Det är ingen ko på isen, sade hon. Vi får ta en sak i taget och hjälpas åt, "
@@ -194,6 +194,27 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(rows[2]["group_id"], "a.se")
         self.assertEqual((rejected["hplt_machine_translated"], rejected["hplt_host_cap"]), (1, 1))
         self.assertGreater(rejected["hplt_unlabelled"], 0)  # filler before the cut was still read
+
+    def test_hplt_site_rules_keep_swedish_hosts_and_blogspot_mirrors(self):
+        spec = {"blocked_domains": ["xyz", "firebaseapp.com"], "native_tlds": ["se", "nu", "fi", "ax", "eu"],
+                "foreign_tld_exempt": ["blogspot"], "language_subdomains": ["sv", "se", "swe"],
+                "language_subdomain_exempt": ["wikipedia.org"]}
+        cases = {"www.dn.se": None, "hbl.fi": None, "sv.wikipedia.org": None, "minbebis.com": None,
+                 "arneshemliga.blogspot.it": None, "kaffemeddopp.blogspot.com.au": None,
+                 "sv.player.se": None,  # a subdomain on a Swedish TLD is just a subdomain
+                 "reeee.goodwomenprizz.nl": "hplt_foreign_tld", "www.ubezpieczenia.no": "hplt_foreign_tld",
+                 "sv.shenyun.com": "hplt_language_subdomain", "se.drugfreeworld.org": "hplt_language_subdomain",
+                 "affarervclb.firebaseapp.com": "hplt_blocked_domain", "plusljud.xyz": "hplt_blocked_domain",
+                 "svenska.se": None}
+        self.assertEqual({host: hplt_site_reason(host, spec) for host in cases}, cases)
+
+    def test_danish_norwegian_passages_are_dropped_only_when_enabled(self):
+        norwegian = ("Jeg tror jeg sier kvinnelige finlandssvenske forfattere fordi jeg har fått inntrykk av at "
+                     "de står sterkt, og du blir også trukket fram som en dikter.")
+        self.assertIsNone(quality_reason(norwegian, {"swedish_markers": False}))
+        self.assertEqual(quality_reason(norwegian, {"swedish_markers": False, "reject_danish_norwegian": True}),
+                         "danish_or_norwegian")
+        self.assertIsNone(quality_reason(TEXT, {"reject_danish_norwegian": True}))
 
     def test_explicit_passages_are_dropped_only_when_enabled(self):
         erotica = TEXT + " Hon var kåt och tog tag i hans kuk."

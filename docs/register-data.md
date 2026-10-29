@@ -131,6 +131,16 @@ casino and listicle pages on `.se` domains) that URL filters miss.
   `fun`, `pw`, …) and `netlify.app` / `web.app`, whose random subdomains get past
   the host cap. In the first full run these pages copied Swedish news or were
   machine translated with MT scores under 0.1. Counted as `hplt_blocked_domain`.
+- **Foreign sites:** with `native_tlds` set, a page on another country's TLD is
+  dropped (`hplt_foreign_tld`) unless a host label is in `foreign_tld_exempt`
+  (`blogspot`, whose regional mirrors such as `name.blogspot.no` serve Swedish
+  blogs), and a language subdomain such as `sv.example.com` off those TLDs is
+  dropped as a translated copy of a foreign site (`hplt_language_subdomain`),
+  except hosts under `language_subdomain_exempt` (Wikipedia, Wikisource).
+- **Norwegian and Danish:** language ID labels some Norwegian pages Swedish.
+  `registers.quality.reject_danish_norwegian` drops a passage with at least three
+  Danish/Norwegian-only function words (`ikke`, `jeg`, `og`, …) and more of them
+  than Swedish ones (`danish_or_norwegian`). Off by default.
 - **Adult content:** `registers.quality.max_explicit_terms` drops a passage with
   more than that many explicit sexual words (`explicit`), and
   `max_explicit_terms_per_page` drops a whole page (`explicit_page`), which also
