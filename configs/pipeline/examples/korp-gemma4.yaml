@@ -1,0 +1,5 @@
+# Full pipeline with every default: Korp Wikipedia passages -> Gemma 4 12B IT
+# generates/curates 1000 rows -> bf16 LoRA on Gemma 4 12B base -> EuroEval + idioms.
+#   ./pipeline run configs/pipeline/examples/korp-gemma4.yaml
+datagen:
+  target: 1000

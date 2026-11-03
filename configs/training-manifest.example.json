@@ -1,0 +1,7 @@
+{
+  "model_id": "source2synth-sv-intermediate",
+  "base_model": "REPLACE_WITH_ACTUAL_BASE_MODEL_AND_REVISION",
+  "slice0_train_sha256": "REPLACE_WITH_SHA256SUM_OF_SLICE0_TRAIN_JSONL",
+  "checkpoint": "REPLACE_WITH_ACTUAL_CHECKPOINT_PATH_OR_URI",
+  "training_command": "REPLACE_WITH_ACTUAL_TRAINING_COMMAND_AND_HYPERPARAMETERS"
+}

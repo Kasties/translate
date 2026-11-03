@@ -1,0 +1,7 @@
+extends: register-native.yaml
+name: register-random
+datagen:
+  overrides:
+    registers:
+      sampling:
+        strategy: random

@@ -1,0 +1,27 @@
+# Plumbing check of every stage with tiny models (~15 min), e.g. on a new machine:
+#   ./pipeline run smoke-test
+# The scores are meaningless; it proves that serving, generation/curation,
+# LoRA training and both benchmarks work. Delete its outputs afterwards with
+#   rm -rf artifacts/{pipeline,finetuning,euroeval,idioms}/smoke-test artifacts/source2synth/runs/smoke-test*
+data:
+  source: local
+  local:
+    path: data/nlu/passages.jsonl  # the checked-in Korp passages; no Korp access needed
+generator:
+  model: Qwen/Qwen2.5-0.5B-Instruct
+  max_parallel_requests: 8
+  gpu_memory_utilization: 0.5
+datagen:
+  target: 7
+  batch_size: 1
+  max_batches: 1
+sft:
+  model: google/gemma-3-270m  # tiny base model: adds BOS (idioms), long context (EuroEval); gated like Gemma 4
+  train_file: artifacts/source2synth/runs/nlu-1000/train.jsonl
+  max_steps: 2
+eval:
+  gpu_memory_utilization: 0.5
+  euroeval:
+    datasets: [swerec]
+  idioms:
+    limit: 20

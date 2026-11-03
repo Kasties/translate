@@ -1,0 +1,6 @@
+# Separate environment: vLLM controls the inference CUDA/torch dependencies.
+euroeval==18.1.0
+vllm==0.30.0
+transformers==5.17.0
+vllm-bnb-plugin
+ray>=2.55.0

@@ -1,0 +1,10 @@
+# Python 3.11+ data generation and source preparation dependencies.
+# Training and vLLM evaluation use their own files/environments; see README.md.
+data-designer==0.9.2
+pandas>=2.2
+pydantic>=2.10
+PyYAML>=6
+requests>=2.32
+numpy>=1.26
+sentence-transformers>=3,<6
+torch>=2.6

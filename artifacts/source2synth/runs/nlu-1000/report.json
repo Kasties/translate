@@ -1,0 +1,553 @@
+{
+  "stage": "nlu_build",
+  "config": {
+    "paper": "https://arxiv.org/abs/2409.08239v2",
+    "random_seed": 42,
+    "corpus": {
+      "id": "WIKIPEDIA-SV",
+      "api": "https://ws.spraakbanken.gu.se/ws/korp/v8",
+      "resource": "https://spraakbanken.gu.se/resurser/wikipedia-sv",
+      "doi": "https://doi.org/10.23695/7dz6-ek80",
+      "license_as_listed": "CC-BY-4.0",
+      "hits_per_entity": 40,
+      "min_words": 25,
+      "max_words": 450,
+      "pairs_per_entity_per_split": 4,
+      "max_pairs_per_training_slice": 40,
+      "max_eval_pairs": 12,
+      "entities": [
+        "Alfred Nobel",
+        "Astrid Lindgren",
+        "Selma Lagerlöf",
+        "Carl von Linné",
+        "Marie Curie",
+        "Albert Einstein",
+        "Apollo 11",
+        "Göta kanal",
+        "Uppsala universitet",
+        "Stockholms universitet",
+        "Ingmar Bergman",
+        "Olof Palme"
+      ]
+    },
+    "model": {
+      "provider": "local",
+      "id": "google/gemma-4-12B-it",
+      "endpoint": "http://127.0.0.1:8080/v1",
+      "temperature": 0.7,
+      "max_tokens": 2048,
+      "max_parallel_requests": 2,
+      "timeout": 180,
+      "extra_body": {
+        "response_format": {
+          "type": "json_object"
+        },
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
+    },
+    "curation": {
+      "attempts": 3,
+      "answer_matching": "normalized_exact"
+    },
+    "nlu": {
+      "hits_per_query": 100,
+      "max_passages_per_topic_per_split": 100,
+      "generation_max_tokens": 512,
+      "curation_max_tokens": 256,
+      "curation_temperature": 0.1,
+      "curation_attempts": 3,
+      "records_per_task": 12,
+      "styles": [
+        "saklig",
+        "lättläst",
+        "nyhetsnotis",
+        "förklarande"
+      ],
+      "difficulties": [
+        "enkel",
+        "medel",
+        "svår"
+      ],
+      "topics": {
+        "kultur": [
+          "bibliotek",
+          "musik",
+          "teater"
+        ],
+        "vetenskap": [
+          "forskning",
+          "fysik",
+          "universitet"
+        ],
+        "samhälle": [
+          "kommun",
+          "riksdagen",
+          "utbildning"
+        ],
+        "natur": [
+          "skog",
+          "sjö",
+          "klimat"
+        ],
+        "teknik": [
+          "dator",
+          "järnväg",
+          "energi"
+        ],
+        "idrott": [
+          "fotboll",
+          "olympiska",
+          "simning"
+        ]
+      }
+    }
+  },
+  "data_designer_version": "0.9.2",
+  "accepted": 853,
+  "rejected": 133,
+  "rejection_counts": {
+    "duplicate_across_batches": 133
+  },
+  "target": 1000,
+  "complete": false,
+  "split": "slice1",
+  "tasks": [
+    "classification",
+    "sentiment-classification",
+    "named-entity-recognition",
+    "linguistic-acceptability",
+    "reading-comprehension",
+    "natural-language-inference",
+    "grammatical-error-detection"
+  ],
+  "batch_size": 25,
+  "batches": [
+    {
+      "offset": 0,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0000",
+      "generated": 69,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0000",
+      "curated": 38
+    },
+    {
+      "offset": 25,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0001",
+      "generated": 70,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0001",
+      "curated": 44
+    },
+    {
+      "offset": 50,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0002",
+      "generated": 82,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0002",
+      "curated": 51
+    },
+    {
+      "offset": 75,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0003",
+      "generated": 91,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0003",
+      "curated": 62
+    },
+    {
+      "offset": 100,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0004",
+      "generated": 75,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0004",
+      "curated": 48
+    },
+    {
+      "offset": 125,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0005",
+      "generated": 71,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0005",
+      "curated": 49
+    },
+    {
+      "offset": 150,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0006",
+      "generated": 87,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0006",
+      "curated": 56
+    },
+    {
+      "offset": 175,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0007",
+      "generated": 88,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0007",
+      "curated": 53
+    },
+    {
+      "offset": 200,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0008",
+      "generated": 76,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0008",
+      "curated": 44
+    },
+    {
+      "offset": 225,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-gen-0009",
+      "generated": 83,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-cur-0009",
+      "curated": 56
+    },
+    {
+      "offset": 250,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0010",
+      "generated": 140,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0010",
+      "curated": 107
+    },
+    {
+      "offset": 275,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0011",
+      "generated": 129,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0011",
+      "curated": 90
+    },
+    {
+      "offset": 300,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0012",
+      "generated": 104,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0012",
+      "curated": 64
+    },
+    {
+      "offset": 325,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0013",
+      "generated": 79,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0013",
+      "curated": 44
+    },
+    {
+      "offset": 350,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0014",
+      "generated": 52,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0014",
+      "curated": 18
+    },
+    {
+      "offset": 375,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0015",
+      "generated": 55,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0015",
+      "curated": 19
+    },
+    {
+      "offset": 400,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0016",
+      "generated": 53,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0016",
+      "curated": 17
+    },
+    {
+      "offset": 425,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0017",
+      "generated": 45,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0017",
+      "curated": 18
+    },
+    {
+      "offset": 450,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0018",
+      "generated": 51,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0018",
+      "curated": 19
+    },
+    {
+      "offset": 475,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0019",
+      "generated": 35,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0019",
+      "curated": 7
+    },
+    {
+      "offset": 500,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0020",
+      "generated": 35,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0020",
+      "curated": 8
+    },
+    {
+      "offset": 525,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0021",
+      "generated": 33,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0021",
+      "curated": 6
+    },
+    {
+      "offset": 550,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0022",
+      "generated": 31,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0022",
+      "curated": 5
+    },
+    {
+      "offset": 575,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0023",
+      "generated": 31,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0023",
+      "curated": 7
+    },
+    {
+      "offset": 600,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0024",
+      "generated": 33,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0024",
+      "curated": 8
+    },
+    {
+      "offset": 625,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0025",
+      "generated": 33,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0025",
+      "curated": 8
+    },
+    {
+      "offset": 650,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0026",
+      "generated": 38,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0026",
+      "curated": 8
+    },
+    {
+      "offset": 675,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0027",
+      "generated": 34,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0027",
+      "curated": 8
+    },
+    {
+      "offset": 700,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0028",
+      "generated": 28,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0028",
+      "curated": 4
+    },
+    {
+      "offset": 725,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0029",
+      "generated": 31,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0029",
+      "curated": 7
+    },
+    {
+      "offset": 750,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0030",
+      "generated": 30,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0030",
+      "curated": 7
+    },
+    {
+      "offset": 775,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0031",
+      "generated": 34,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0031",
+      "curated": 10
+    },
+    {
+      "offset": 800,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0032",
+      "generated": 34,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0032",
+      "curated": 8
+    },
+    {
+      "offset": 825,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0033",
+      "generated": 37,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0033",
+      "curated": 9
+    },
+    {
+      "offset": 850,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0034",
+      "generated": 33,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0034",
+      "curated": 8
+    },
+    {
+      "offset": 875,
+      "generation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-gen-0035",
+      "generated": 30,
+      "curation_run": "/mnt/ssd/TDDE19/artifacts/source2synth/runs/nlu-1000-v1-cur-0035",
+      "curated": 6
+    }
+  ],
+  "next_offset": 900,
+  "curated_before_dedup": 1021,
+  "surplus": 35,
+  "task_quotas": {
+    "classification": 143,
+    "sentiment-classification": 143,
+    "named-entity-recognition": 143,
+    "linguistic-acceptability": 143,
+    "reading-comprehension": 143,
+    "natural-language-inference": 143,
+    "grammatical-error-detection": 142
+  },
+  "input_revisions": [
+    {
+      "after_batches": 10,
+      "previous": {
+        "balance_tasks": false,
+        "implementation_sha256": null,
+        "config_sha256": "da49d8261238063d8b88f3e77d63db24eec84211c1e4cea6a4401b1d673c74a1",
+        "passages_sha256": "7eeba3447f46d6b24c5f3ce6e53be6e3a15ebfc29a7d57600935328439b069d4"
+      },
+      "current": {
+        "balance_tasks": true,
+        "implementation_sha256": "0ebd6303540ead49c7c450299f99fe58b57cd3ea6f1c1c17904557337dec2617",
+        "config_sha256": "11c77cfd3c6df954376333449d8fccc93d1c02b622567731de91e9ba4d7e2611",
+        "passages_sha256": "b10b90ff01c902065c4ba7017de2d5016fb2390f744949884446609bfddc0987"
+      },
+      "config": {
+        "paper": "https://arxiv.org/abs/2409.08239v2",
+        "random_seed": 42,
+        "corpus": {
+          "id": "WIKIPEDIA-SV",
+          "api": "https://ws.spraakbanken.gu.se/ws/korp/v8",
+          "resource": "https://spraakbanken.gu.se/resurser/wikipedia-sv",
+          "doi": "https://doi.org/10.23695/7dz6-ek80",
+          "license_as_listed": "CC-BY-4.0",
+          "hits_per_entity": 40,
+          "min_words": 25,
+          "max_words": 450,
+          "pairs_per_entity_per_split": 4,
+          "max_pairs_per_training_slice": 40,
+          "max_eval_pairs": 12,
+          "entities": [
+            "Alfred Nobel",
+            "Astrid Lindgren",
+            "Selma Lagerlöf",
+            "Carl von Linné",
+            "Marie Curie",
+            "Albert Einstein",
+            "Apollo 11",
+            "Göta kanal",
+            "Uppsala universitet",
+            "Stockholms universitet",
+            "Ingmar Bergman",
+            "Olof Palme"
+          ]
+        },
+        "model": {
+          "provider": "local",
+          "id": "google/gemma-4-12B-it",
+          "endpoint": "http://127.0.0.1:8080/v1",
+          "temperature": 0.7,
+          "max_tokens": 2048,
+          "max_parallel_requests": 2,
+          "timeout": 180,
+          "extra_body": {
+            "response_format": {
+              "type": "json_object"
+            },
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            }
+          }
+        },
+        "curation": {
+          "attempts": 3,
+          "answer_matching": "normalized_exact"
+        },
+        "nlu": {
+          "hits_per_query": 100,
+          "max_passages_per_topic_per_split": 100,
+          "generation_max_tokens": 512,
+          "curation_max_tokens": 256,
+          "curation_temperature": 0.1,
+          "curation_attempts": 3,
+          "records_per_task": 12,
+          "styles": [
+            "saklig",
+            "lättläst",
+            "nyhetsnotis",
+            "förklarande"
+          ],
+          "difficulties": [
+            "enkel",
+            "medel",
+            "svår"
+          ],
+          "topics": {
+            "kultur": [
+              "bibliotek",
+              "musik",
+              "teater"
+            ],
+            "vetenskap": [
+              "forskning",
+              "fysik",
+              "universitet"
+            ],
+            "samhälle": [
+              "kommun",
+              "riksdagen",
+              "utbildning"
+            ],
+            "natur": [
+              "skog",
+              "sjö",
+              "klimat"
+            ],
+            "teknik": [
+              "dator",
+              "järnväg",
+              "energi"
+            ],
+            "idrott": [
+              "fotboll",
+              "olympiska",
+              "simning"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "unique_source_articles": 319,
+  "by_task": {
+    "classification": 143,
+    "sentiment-classification": 143,
+    "linguistic-acceptability": 143,
+    "reading-comprehension": 143,
+    "natural-language-inference": 143,
+    "grammatical-error-detection": 84,
+    "named-entity-recognition": 54
+  },
+  "by_label": {
+    "classification/kultur": 34,
+    "sentiment-classification/positive": 75,
+    "linguistic-acceptability/incorrect": 60,
+    "reading-comprehension/time": 35,
+    "natural-language-inference/contradiction": 65,
+    "grammatical-error-detection/correct": 50,
+    "classification/samhälle": 22,
+    "linguistic-acceptability/correct": 83,
+    "natural-language-inference/entailment": 53,
+    "grammatical-error-detection/incorrect": 34,
+    "classification/natur": 23,
+    "classification/idrott": 28,
+    "sentiment-classification/neutral": 29,
+    "classification/vetenskap": 20,
+    "sentiment-classification/negative": 39,
+    "reading-comprehension/object": 31,
+    "natural-language-inference/neutral": 25,
+    "classification/teknik": 16,
+    "reading-comprehension/place": 32,
+    "reading-comprehension/person": 15,
+    "named-entity-recognition/loc": 18,
+    "reading-comprehension/quantity": 12,
+    "reading-comprehension/cause": 18,
+    "named-entity-recognition/per": 11,
+    "named-entity-recognition/org": 16,
+    "named-entity-recognition/mixed": 9
+  },
+  "model": "google/gemma-4-12B-it",
+  "limitation": "Accepted synthetic labels still need human spot checks"
+}
