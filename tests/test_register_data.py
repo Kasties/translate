@@ -222,9 +222,14 @@ def fixture_pool(path):
 
 class FakeClient:
     """Journal a deterministic response through the actual CompletionClient."""
-    def __init__(self, config, directory):
-        self.actual = CompletionClient(config, directory)
+    instances = []
+
+    def __init__(self, config, directory, model_id=None, endpoint=None):
+        self.actual = CompletionClient(config, directory, model_id=model_id, endpoint=endpoint)
+        self.model_id = self.actual.model["id"]
+        self.endpoint = self.actual.model["endpoint"]
         self.current_source = None
+        self.instances.append(self)
 
     def call(self, key, prompt, schema, limit, temperature=0.7):
         if key.endswith("-review"):
@@ -306,6 +311,7 @@ class GenerationTests(unittest.TestCase):
             prepare_registers(config, root / "data")
             args = argparse.Namespace(data_dir=root / "data", output_dir=root / "output", split="slice1",
                 run_name="shares", target=8, batch_size=4, max_batches=10, resume=False)
+            FakeClient.instances.clear()
             report = build_instructions(config, args, FakeClient)
             self.assertTrue(report["complete"])
             self.assertEqual(report["by_register"], {"debate": 4, "fiction": 2, "encyclopedia": 2})
@@ -314,6 +320,10 @@ class GenerationTests(unittest.TestCase):
             judged = [attempt for attempt in attempts if attempt["task"] == "backtranslation"]
             self.assertTrue(judged)
             self.assertTrue(all(len(attempt["instruction_judgements"]) == 2 for attempt in judged))
+            self.assertTrue(any(
+                instance.model_id == "Qwen/Qwen2.5-7B-Instruct"
+                and instance.endpoint == config["instruction_data"]["judge_endpoint"]
+                for instance in FakeClient.instances))
             config["instruction_data"]["register_weights"] = {"debate": 1, "fiction": 0, "encyclopedia": 0}
             args.run_name, args.target = "too-many", 200
             with self.assertRaisesRegex(ValueError, "debate passages"):

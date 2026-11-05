@@ -227,6 +227,23 @@ unsuccessful-attempt completions also cost tokens and appear in the report.
 Native passages are assigned to the response by code, never copied back from a
 model-generated field.
 
+The instruction judge and final semantic reviewer default to
+`Qwen/Qwen2.5-7B-Instruct` at
+`instruction_data.judge_endpoint` (`http://127.0.0.1:8081/v1`). Start a separate
+OpenAI-compatible server for that model before running instruction generation;
+the pipeline starts only the configured generator server. For example, with
+vLLM installed in the evaluation environment:
+
+```bash
+.venv-eval/bin/vllm serve Qwen/Qwen2.5-7B-Instruct \
+  --served-model-name Qwen/Qwen2.5-7B-Instruct --host 127.0.0.1 --port 8081
+```
+
+Keep that server running while the pipeline generates instructions. The generator
+and judge servers run simultaneously, so ensure the available GPU memory can hold
+both models, or point `instruction_data.judge_endpoint` to a separate machine.
+Both model ID and endpoint can be changed through `datagen.overrides`.
+
 The new builder uses the existing OpenAI-compatible backend directly to journal
 per-call usage; legacy generation still uses DataDesigner. Calls are sequential
 in this initial native-data builder. `batch_size` is total candidate attempts,

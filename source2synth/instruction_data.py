@@ -73,8 +73,9 @@ def atomic_json(path: Path, data):
 
 class CompletionClient:
     """Journal responses before parsing so malformed JSON is still charged and replayable."""
-    def __init__(self, config: dict, directory: Path):
-        self.model = resolved_config(config)["model"]
+    def __init__(self, config: dict, directory: Path, model_id: str | None = None,
+                 endpoint: str | None = None):
+        self.model = resolved_config(config, model_id=model_id, endpoint=endpoint)["model"]
         self.directory = directory
         self.session = requests.Session()
 
@@ -424,6 +425,13 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
     else:
         atomic_json(run / "state.json", contract)
     client = client_factory(config, run / "calls")
+    judge_model = cfg.get("judge_model")
+    judge_endpoint = cfg.get("judge_endpoint")
+    if judge_model and judge_model != resolved_config(config)["model"]["id"] and not judge_endpoint:
+        raise ValueError("A separate instruction_data.judge_endpoint is required when judge_model differs "
+                         "from the generator model")
+    judge_client = (client_factory(config, run / "calls", model_id=judge_model, endpoint=judge_endpoint)
+                    if judge_model else client)
     report = export_build(run, contract, client, manifest, source_dir)
     accepted = read_jsonl(run / "accepted.jsonl")
     prompts = {normalize(item["input"]) for item in accepted}
@@ -455,7 +463,7 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                     if not draft["possible"]:
                         raise ValueError("not_possible")
                     evaluation = judge_instruction(
-                        client, f"{attempt_id}-judge-{refinement}", source["text"],
+                        judge_client, f"{attempt_id}-judge-{refinement}", source["text"],
                         draft["instruction"], cfg["review_max_tokens"])
                     evaluations.append({"instruction": draft["instruction"], **evaluation})
                     attempt["instruction_judgements"] = evaluations
@@ -479,8 +487,8 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                 attempt["prediction"] = prediction
                 if not prediction_matches(item, prediction):
                     raise ValueError("independent_solver_mismatch")
-            review = client.call(attempt_id + "-review", review_request(item), Review,
-                                 cfg["review_max_tokens"], 0.1)
+            review = judge_client.call(attempt_id + "-review", review_request(item), Review,
+                                       cfg["review_max_tokens"], 0.1)
             attempt["review"] = review
             if not all(review[key] is True for key in ("swedish", "self_contained", "source_faithful", "task_fulfilled")):
                 raise ValueError("semantic_review_failed")
