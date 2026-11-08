@@ -1,0 +1,13 @@
+# New register-first experiment. Source collection is bounded and cached.
+# Start with: ./pipeline run register-native --only sources
+name: register-native
+data:
+  source: registers
+datagen:
+  mode: instructions
+  target: 1000
+  batch_size: 25  # total attempts, unlike legacy NLU's per-task batch size
+  max_batches: 100
+  require_complete: true
+sft:
+  require_provenance: true

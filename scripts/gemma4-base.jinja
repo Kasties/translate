@@ -1,0 +1,4 @@
+{{ bos_token }}{% for message in messages %}{{ message['role'] | upper }}:
+{{ message['content'] }}
+
+{% endfor %}ASSISTANT:

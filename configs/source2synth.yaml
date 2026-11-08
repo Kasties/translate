@@ -1,0 +1,201 @@
+paper: https://arxiv.org/abs/2409.08239v2
+random_seed: 42
+corpus:
+  id: WIKIPEDIA-SV
+  api: https://ws.spraakbanken.gu.se/ws/korp/v8
+  resource: https://spraakbanken.gu.se/resurser/wikipedia-sv
+  doi: https://doi.org/10.23695/7dz6-ek80
+  license_as_listed: CC-BY-4.0
+  hits_per_entity: 40
+  min_words: 25
+  max_words: 450
+  pairs_per_entity_per_split: 4
+  max_pairs_per_training_slice: 40
+  max_eval_pairs: 12
+  # A small, editable bootstrap vocabulary, not a representative corpus sample.
+  # Passages and all question/answer content come from Korp and DataDesigner.
+  entities:
+    - Alfred Nobel
+    - Astrid Lindgren
+    - Selma Lagerlöf
+    - Carl von Linné
+    - Marie Curie
+    - Albert Einstein
+    - Apollo 11
+    - Göta kanal
+    - Uppsala universitet
+    - Stockholms universitet
+    - Ingmar Bergman
+    - Olof Palme
+model:
+  provider: local
+  id: google/gemma-4-12B-it
+  endpoint: http://127.0.0.1:8080/v1
+  temperature: 0.7
+  max_tokens: 2048
+  max_parallel_requests: 2
+  timeout: 180
+  extra_body:
+    response_format: {type: json_object}
+    chat_template_kwargs: {enable_thinking: false}
+curation:
+  attempts: 3
+  # Strict normalized equality, not substring matching.
+  answer_matching: normalized_exact
+nlu:
+  hits_per_query: 100
+  max_passages_per_topic_per_split: 100
+  generation_max_tokens: 512
+  curation_max_tokens: 256
+  curation_temperature: 0.1
+  # Retry only independent mismatches whose semantic review passed.
+  curation_attempts: 3
+  # Candidate quotas; acceptance is reported separately, never manufactured.
+  records_per_task: 12
+  styles: [saklig, lättläst, nyhetsnotis, förklarande]
+  difficulties: [enkel, medel, svår]
+  topics:
+    kultur: [bibliotek, musik, teater]
+    vetenskap: [forskning, fysik, universitet]
+    samhälle: [kommun, riksdagen, utbildning]
+    natur: [skog, sjö, klimat]
+    teknik: [dator, järnväg, energi]
+    idrott: [fotboll, olympiska, simning]
+
+# Used by prepare-registers / instruction-build. Legacy NLU runs ignore these.
+registers:
+  min_words: 40
+  max_words: 240
+  quality:
+    min_unique_word_ratio: 0.25
+    swedish_markers: true  # cheap prose heuristic; semantic review also checks Swedish
+  embedding:
+    model: intfloat/multilingual-e5-small
+    revision: null  # pin a Hub commit for published experiments; vectors are saved
+    device: cpu
+    prefix: "passage: "
+    batch_size: 32
+    max_chunks_per_document: 16
+  sampling:
+    strategy: balanced  # balanced | random | keyword (Wikipedia-only legacy proxy)
+    clusters: 24
+    per_split: 1600  # upper bound; no duplicate documents to fill shortfalls
+  # kind: korp samples Språkbanken's Korp API, never the original websites. A unit
+  # (text, paragraph or page) is one document, rebuilt from Sparv _head/_tail
+  # whitespace. Korp scrambles the sentences of its forum and news corpora
+  # (Flashback, Familjeliv, SVT, 8 Sidor); such corpora are detected and refused.
+  korp_api: https://ws.spraakbanken.gu.se/ws/korp/v8
+  sources:
+    - name: riksdag-debates
+      namespace: riksdag
+      kind: korp
+      corpora: [RD-PROT]  # chamber protocols, up to June 2022
+      unit: paragraph
+      min_tokens: 50  # skip speaker lines and short replies while sampling
+      date_from: "2010-01-01"  # quoted: configs are JSON-fingerprinted; older protocols are OCR scans
+      group_by: text__id  # paragraphs of one protocol share a split
+      attributes: {title: text_titel, url: dokument_dokument_url_html, date: text_date}
+      register: debate
+      era: contemporary
+      max_documents: 1500
+      coherent: true
+      license: CC-BY-4.0
+      license_url: https://sprakbanken.se/resurser/rd-prot
+    - name: wikipedia-sv
+      kind: korp
+      corpora: [WIKIPEDIA-SV]
+      unit: text  # one article
+      min_tokens: 50
+      attributes: {title: text_title, url: text_url, date: text_date}
+      register: encyclopedia
+      era: contemporary
+      max_documents: 1500
+      coherent: true
+      license: CC-BY-4.0  # as listed by Språkbanken; the article text is CC BY-SA on Wikipedia
+      license_url: https://sprakbanken.se/resurser/wikipedia-sv
+    # Platsbanken job ads, July 2023–2024. Språkbanken has no resource page for this
+    # Korp corpus (checked 2026-10-09); the license is that of Arbetsförmedlingen's
+    # open job-ad data. Passages with e-mail addresses or URLs are dropped by the
+    # quality filter, but contact names in ads are not.
+    - name: job-ads
+      namespace: arbetsformedlingen
+      kind: korp
+      corpora: [ARBETSFORMEDLINGEN-2024]
+      unit: text  # one ad
+      min_tokens: 50
+      group_by: text_employer_name  # one employer's (often templated) ads share a split
+      attributes: {title: text_headline, author: text_employer_name, date: text_publication_date}
+      register: job-ad
+      era: contemporary
+      max_documents: 1500
+      coherent: true
+      license: CC0-1.0
+      license_url: https://data.arbetsformedlingen.se/dataset/job-ads/
+    # Transcribed e-texts only (not OCR facsimiles); each work carries its own
+    # text_license. Pages keep the printed line breaks, so native_passages finds
+    # few 40-word blocks until lines are joined. Preserve older spelling.
+    - name: litteraturbanken
+      namespace: litteraturbanken
+      kind: korp
+      corpora: [LB-OPEN]
+      unit: page
+      min_tokens: 80
+      where: {text_mediatype: etext}
+      group_by: text_lbworkid  # pages of one work share a split
+      attributes: {title: text_title, author: text_author, date: text_date, url: page_url,
+                   license: text_license}
+      register: fiction
+      era: historical
+      enabled: false
+      max_documents: 500
+      coherent: true
+      license: CC-BY-4.0
+      license_url: https://sprakbanken.se/resurser/lb-open
+    # Korp's forum corpora are sentence-scrambled; forums need a coherent,
+    # licensed local export. See docs/register-data.md for source details.
+    - name: sprakbanken-forums
+      kind: local
+      register: forum
+      era: contemporary
+      enabled: false
+      path: data/register-input/forums.jsonl
+      max_documents: 1500
+      coherent: false
+      license: null
+      license_url: null
+    - name: opinion-and-advice
+      kind: local
+      register: advice
+      enabled: false
+      path: data/register-input/advice.jsonl
+      max_documents: 1500
+      coherent: false
+      license: null
+      license_url: null
+
+instruction_data:
+  # The experiment runner injects its managed judge model and endpoint here for
+  # datagen.mode: instructions. These defaults also support direct CLI use.
+  judge_model: Qwen/Qwen2.5-7B-Instruct
+  judge_endpoint: http://127.0.0.1:8081/v1
+  # Fractions become exact accepted-row quotas using largest remainders.
+  weights:
+    backtranslation: 0.60
+    rewrite: 0.25
+    grounded-summary: 0.04
+    grounded-explanation: 0.03
+    grounded-qa: 0.03
+    reading-comprehension: 0.03
+    natural-language-inference: 0.02
+  # Share of accepted rows per source register, applied within every task, so each
+  # task has the same register mix. Weights are normalized (here: percentages of
+  # the dataset). Every register in the source pool needs an entry; 0 excludes it.
+  # null = equal shares. Change per experiment with datagen.overrides; the source
+  # pool does not need rebuilding, only a new generation run.
+  register_weights:
+    debate: 0.40
+    encyclopedia: 0.40
+    job-ad: 0.20
+  backtranslation_max_tokens: 128  # JSON + roughly 20–50 instruction tokens, not a cost guarantee
+  generation_max_tokens: 768
+  review_max_tokens: 192

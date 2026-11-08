@@ -1,0 +1,191 @@
+{
+  "corpus": {
+    "id": "WIKIPEDIA-SV",
+    "api": "https://ws.spraakbanken.gu.se/ws/korp/v8",
+    "resource": "https://spraakbanken.gu.se/resurser/wikipedia-sv",
+    "doi": "https://doi.org/10.23695/7dz6-ek80",
+    "license_as_listed": "CC-BY-4.0",
+    "hits_per_entity": 40,
+    "min_words": 25,
+    "max_words": 450,
+    "pairs_per_entity_per_split": 4,
+    "max_pairs_per_training_slice": 40,
+    "max_eval_pairs": 12,
+    "entities": [
+      "Alfred Nobel",
+      "Astrid Lindgren",
+      "Selma Lagerlöf",
+      "Carl von Linné",
+      "Marie Curie",
+      "Albert Einstein",
+      "Apollo 11",
+      "Göta kanal",
+      "Uppsala universitet",
+      "Stockholms universitet",
+      "Ingmar Bergman",
+      "Olof Palme"
+    ]
+  },
+  "sampling_config": {
+    "hits_per_query": 100,
+    "max_passages_per_topic_per_split": 100,
+    "generation_max_tokens": 512,
+    "curation_max_tokens": 256,
+    "curation_temperature": 0.1,
+    "curation_attempts": 3,
+    "records_per_task": 12,
+    "styles": [
+      "saklig",
+      "lättläst",
+      "nyhetsnotis",
+      "förklarande"
+    ],
+    "difficulties": [
+      "enkel",
+      "medel",
+      "svår"
+    ],
+    "topics": {
+      "kultur": [
+        "bibliotek",
+        "musik",
+        "teater"
+      ],
+      "vetenskap": [
+        "forskning",
+        "fysik",
+        "universitet"
+      ],
+      "samhälle": [
+        "kommun",
+        "riksdagen",
+        "utbildning"
+      ],
+      "natur": [
+        "skog",
+        "sjö",
+        "klimat"
+      ],
+      "teknik": [
+        "dator",
+        "järnväg",
+        "energi"
+      ],
+      "idrott": [
+        "fotboll",
+        "olympiska",
+        "simning"
+      ]
+    }
+  },
+  "random_seed": 42,
+  "corpus_info": {
+    "corpora": {
+      "WIKIPEDIA-SV": {
+        "attrs": {
+          "p": [
+            "word",
+            "swefn",
+            "_head",
+            "_tail",
+            "lemma",
+            "complemgram",
+            "compwf",
+            "lex",
+            "dephead",
+            "deprel",
+            "msd",
+            "msd_annotator",
+            "pos",
+            "ref",
+            "ufeats",
+            "sense"
+          ],
+          "s": [
+            "ne",
+            "ne_ex",
+            "ne_name",
+            "ne_type",
+            "ne_subtype",
+            "sentence",
+            "sentence_id",
+            "sentence__geocontext",
+            "text",
+            "text_swefn",
+            "text_lix",
+            "text_ovix",
+            "text_nk",
+            "text_datefrom",
+            "text_dateto",
+            "text_timefrom",
+            "text_timeto",
+            "text__id",
+            "text_date",
+            "text_url",
+            "text_categories",
+            "text_title",
+            "text_permalink",
+            "paragraph",
+            "paragraph__geocontext",
+            "header",
+            "header_level",
+            "subscript",
+            "superscript",
+            "table",
+            "table_id",
+            "preformatted",
+            "preformatted_id",
+            "marker",
+            "image",
+            "image_alternative",
+            "image_source",
+            "math",
+            "math_formula",
+            "stricken",
+            "document"
+          ],
+          "a": []
+        },
+        "info": {
+          "Name": "WIKIPEDIA-SV",
+          "Size": "235438718",
+          "Charset": "utf8",
+          "Sentences": "14706089",
+          "FirstDate": "2012-07-18 16:20:32",
+          "LastDate": "2026-07-01 00:00:51",
+          "DateResolution": "YMDhms",
+          "Updated": "2026-08-14",
+          "Protected": "false"
+        }
+      }
+    },
+    "total_size": 235438718,
+    "total_sentences": 14706089,
+    "time": 0.06718778610229492
+  },
+  "retrieved_at": "2026-09-18T12:17:08.856532+00:00",
+  "passages": 1267,
+  "sha256": "74d4ff7df84e552b5c53b4a3ed2e512515142846f1db3e48de6762c35648ce7d",
+  "by_topic_and_split": {
+    "kultur/slice0": 100,
+    "kultur/slice1": 100,
+    "kultur/eval": 21,
+    "vetenskap/slice1": 100,
+    "vetenskap/eval": 26,
+    "vetenskap/slice0": 100,
+    "samhälle/slice0": 89,
+    "samhälle/eval": 31,
+    "samhälle/slice1": 97,
+    "natur/slice0": 91,
+    "natur/slice1": 94,
+    "natur/eval": 20,
+    "teknik/slice1": 100,
+    "teknik/slice0": 100,
+    "teknik/eval": 31,
+    "idrott/slice1": 77,
+    "idrott/slice0": 81,
+    "idrott/eval": 9
+  },
+  "splitting": "Same 45/45/10 article hash as the original QA pipeline",
+  "sampling": "Topic-keyword-conditioned Wikipedia; styles and opinions are synthetic transformations"
+}
