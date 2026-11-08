@@ -176,7 +176,7 @@ registers:
 instruction_data:
   # The experiment runner injects its managed judge model and endpoint here for
   # datagen.mode: instructions. These defaults also support direct CLI use.
-  judge_model: Qwen/Qwen2.5-7B-Instruct
+  judge_model: Qwen/Qwen2.5-0.5B-Instruct
   judge_endpoint: http://127.0.0.1:8081/v1
   # Fractions become exact accepted-row quotas using largest remainders.
   weights:

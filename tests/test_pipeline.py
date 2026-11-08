@@ -155,8 +155,8 @@ class DryRunTests(unittest.TestCase):
 
     def test_instruction_generation_starts_and_wires_qwen_judge(self):
         text = self.dry_run("data.source=registers", "datagen.mode=instructions")
-        self.assertIn("vllm serve Qwen/Qwen2.5-7B-Instruct", text)
-        self.assertIn("--served-model-name Qwen/Qwen2.5-7B-Instruct", text)
+        self.assertIn("vllm serve Qwen/Qwen2.5-0.5B-Instruct", text)
+        self.assertIn("--served-model-name Qwen/Qwen2.5-0.5B-Instruct", text)
         self.assertIn("--port 8081", text)
 
 

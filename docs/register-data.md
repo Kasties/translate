@@ -228,14 +228,15 @@ Native passages are assigned to the response by code, never copied back from a
 model-generated field.
 
 The instruction judge and final semantic reviewer use the independent
-`Qwen/Qwen2.5-7B-Instruct` service configured under the pipeline's `judge`
+`Qwen/Qwen2.5-0.5B-Instruct` service configured under the pipeline's `judge`
 section. For `datagen.mode: instructions`, `./pipeline run` starts it on port
 8081, waits for it, injects its model ID and endpoint into the instruction
 builder, and stops it after generation. Every backtranslation draft is scored
 for relevance and idiomaticity; scores below 3 trigger up to three refinements.
 
-The generator and judge run at the same time, so size their GPU allocations for
-the available hardware. To use a judge on another machine instead, set
+The generator and judge run at the same time. The default 0.5B judge is capped
+at 5% GPU memory (about 4.8 GB on a 96 GB GPU), while the default generator uses
+90%, leaving about 5% headroom. To use a larger judge on another machine, set
 `judge.backend: external` and `judge.endpoint: https://host/v1`; the runner will
 still wire that endpoint into the builder but will not start a local server.
 Configure the judge through `judge`, rather than overriding

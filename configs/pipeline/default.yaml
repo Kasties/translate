@@ -58,13 +58,14 @@ generator:
 # started only when datagen.mode is "instructions"; use backend: external to
 # point at a judge hosted on another machine.
 judge:
-  model: Qwen/Qwen2.5-7B-Instruct
+  # Keep the judge small enough to coexist with the 12B generator on one 96 GB GPU.
+  model: Qwen/Qwen2.5-0.5B-Instruct
   revision: null
   backend: vllm  # vllm | external
   endpoint: null  # required when backend: external
   port: 8081
   max_model_len: 4096
-  gpu_memory_utilization: 0.35
+  gpu_memory_utilization: 0.05  # ~4.8 GB on a 96 GB GPU; generator (0.90) + judge = 0.95
   language_model_only: auto
   vllm_args: []
 
