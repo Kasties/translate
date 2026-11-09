@@ -1,0 +1,61 @@
+Scoring 478 pairs with base
+Scoring 478 pairs with tuned
+{
+  "models": {
+    "base": {
+      "all": {
+        "accuracy": 0.9121338912133892,
+        "correct": 436,
+        "total": 478,
+        "ci95": [
+          0.8833579098237617,
+          0.9343384355981542
+        ]
+      },
+      "challenge": {
+        "accuracy": 0.87,
+        "correct": 87,
+        "total": 100,
+        "ci95": [
+          0.7901964848675458,
+          0.922428326043397
+        ]
+      }
+    },
+    "tuned": {
+      "all": {
+        "accuracy": 0.8828451882845189,
+        "correct": 422,
+        "total": 478,
+        "ci95": [
+          0.8509155861825324,
+          0.9086703590571152
+        ]
+      },
+      "challenge": {
+        "accuracy": 0.83,
+        "correct": 83,
+        "total": 100,
+        "ci95": [
+          0.7445199515664943,
+          0.8910643392459682
+        ]
+      }
+    }
+  },
+  "paired": {
+    "all": {
+      "only_base": 16,
+      "only_tuned": 2,
+      "mcnemar_exact_p": 0.001312255859375
+    },
+    "challenge": {
+      "only_base": 6,
+      "only_tuned": 2,
+      "mcnemar_exact_p": 0.2890625
+    }
+  }
+}
+Stopping eval server
+
+Done. Record: artifacts/pipeline/first/pipeline.json
