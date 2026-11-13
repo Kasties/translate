@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Swedish Source2Synth with Korp and DataDesigner
 
 This project turns **Svenska Wikipedia (`WIKIPEDIA-SV`) in Korp** into source-grounded Swedish two-hop question answering data, using the installed **NVIDIA NeMo DataDesigner 0.9.2**. Generation, imputation, independent solving, and quality review use DataDesigner LLM columns followed by schema-validated custom columns.
@@ -132,23 +131,7 @@ Use `--config`, `--data-dir`, and `--output-dir` **before** the subcommand for s
 Generated data and credentials are ignored by Git. Språkbanken lists this corpus under **CC-BY-4.0**; that label, its DOI and source links are propagated. The article URLs and revision permalinks preserve attribution to the underlying Wikipedia material. Keep `accepted.jsonl` and the corpus manifest alongside `train.jsonl` when distributing derivatives: the training-only file intentionally has no extra metadata fields. No blanket license is asserted for newly generated content.
 
 API references: [Korp v8](https://ws.spraakbanken.gu.se/docs/korp), [DataDesigner seed datasets](https://docs.nvidia.com/nemo/datadesigner/concepts/seed-datasets), [model providers](https://docs.nvidia.com/nemo/datadesigner/concepts/models/model-providers).
-=======
-# Swedish, not translated (Group 1)
-
-TODO: Overview and introduction to the project. What is it about, what does it consist of, what can it do?
-
-
-## Installation instruction
-
-TODO
-
-
-## Usage
-
-TODO
-
 
 ## License
-The project is licensed under the MIT license (https://opensource.org/license/mit).
 
->>>>>>> origin/main
+The code in this project is licensed under the [MIT license](https://opensource.org/license/mit). Datasets keep their own licences, as noted above and in each baseline's README.
