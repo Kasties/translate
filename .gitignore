@@ -37,3 +37,4 @@ baselines/*/data/processed/*
 !baselines/muri/data/processed/test.jsonl
 # Share the Swedish Magpie training file.
 !baselines/magpie/data/processed/train.jsonl
+!baselines/magpie/data/processed/chunks/
