@@ -115,6 +115,55 @@ class ConfigTests(unittest.TestCase):
         state = {"stages": {"eval": {"settings": pipeline.stage_settings("eval", config, paths)}}}
         served = pipeline.load_experiment(None, ["eval.port=9000", "eval.idioms.enabled=false"], name="guard")
         pipeline.guard_changed("eval", served, paths, state)
+        # Neither does where the adapter is uploaded.
+        state = {"stages": {"sft": {"settings": pipeline.stage_settings("sft", config, paths)}}}
+        uploaded = pipeline.load_experiment(None, ["sft.upload_repo=me/models"], name="guard")
+        pipeline.guard_changed("sft", uploaded, paths, state)
+
+    def test_finished_build_data_is_uploaded_and_reuploaded_when_extended(self):
+        config = pipeline.load_experiment(None, ["datagen.upload_repo=me/models"], name="data")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                mock.patch("huggingface_hub.HfApi") as api, contextlib.redirect_stdout(io.StringIO()):
+            paths = pipeline.Paths("data")
+            paths.build.mkdir(parents=True)
+            for name in ("train.jsonl", "accepted.jsonl", "state.json"):
+                (paths.build / name).write_text("{}\n")
+            (paths.build / "report.json").write_text('{"complete": true, "accepted": 2, "target": 2}')
+            api.return_value.create_commit.return_value = mock.Mock(oid="abc", commit_url="https://hf.test/c/abc")
+            state = {"stages": {}}
+            pipeline.upload_build(config, paths, state, dry_run=False)
+            pipeline.upload_build(config, paths, state, dry_run=False)
+            operations = api.return_value.create_commit.call_args.kwargs["operations"]
+            self.assertEqual(sorted(op.path_in_repo for op in operations),
+                             ["data/data/accepted.jsonl", "data/data/report.json", "data/data/state.json",
+                              "data/data/train.jsonl"])
+            self.assertEqual(api.return_value.create_commit.call_count, 1)
+            (paths.build / "report.json").write_text('{"complete": true, "accepted": 3, "target": 3}')
+            pipeline.upload_build(config, paths, state, dry_run=False)
+            self.assertEqual(api.return_value.create_commit.call_count, 2)
+
+    def test_finished_adapter_is_uploaded_once_and_checkpoints_deleted(self):
+        config = pipeline.load_experiment(None, ["sft.upload_repo=me/models"], name="up")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(pipeline, "ROOT", Path(tmp)), \
+                mock.patch("huggingface_hub.HfApi") as api, contextlib.redirect_stdout(io.StringIO()):
+            paths = pipeline.Paths("up")
+            for name, text in [("manifest.json", '{"status": "complete"}'), ("adapter/adapter_config.json", "{}"),
+                               ("checkpoint-61/optimizer.pt", "state")]:
+                (paths.sft / name).parent.mkdir(parents=True, exist_ok=True)
+                (paths.sft / name).write_text(text)
+            paths.root.mkdir(parents=True)
+            paths.finetune_config.write_text("model: m\n")
+            api.return_value.create_commit.return_value = mock.Mock(oid="abc", commit_url="https://hf.test/c/abc")
+            state = {"stages": {}}
+            pipeline.upload_sft(config, paths, state, dry_run=False)
+            pipeline.upload_sft(config, paths, state, dry_run=False)
+            api.return_value.create_repo.assert_called_once_with("me/models", private=True, exist_ok=True)
+            operations = api.return_value.create_commit.call_args.kwargs["operations"]
+            self.assertEqual(sorted(op.path_in_repo for op in operations),
+                             ["up/adapter/adapter_config.json", "up/finetune.yaml", "up/manifest.json"])
+            self.assertEqual(api.return_value.create_commit.call_count, 1)
+            self.assertFalse((paths.sft / "checkpoint-61").exists())
+            self.assertEqual(state["stages"]["sft"]["upload"]["commit"], "abc")
 
 
 class DryRunTests(unittest.TestCase):

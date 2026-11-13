@@ -26,6 +26,9 @@ COLORS = {
     "dark": ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
 }
 INK = {"light": "#0b0b0b", "dark": "#ffffff"}
+# Training data beyond the eight palette slots shares one neutral colour instead of a generated hue;
+# the bars and lines are labelled with their checkpoint, so they stay readable.
+OTHER = {"light": "#8a8f98", "dark": "#7d838c"}
 # The chart surface, for the ring that keeps overlapping points apart.
 SURFACE = {"light": "#ffffff", "dark": "#0e1117"}
 
@@ -93,7 +96,7 @@ for bound in ["value", "lower", "upper"]:
     shown[f"{bound} (percent)"] = 100 * shown[bound]
 
 theme = "dark" if st.context.theme.type == "dark" else "light"
-colors = dict(zip(kinds, COLORS[theme]))
+colors = {kind: COLORS[theme][i] if i < len(COLORS[theme]) else OTHER[theme] for i, kind in enumerate(kinds)}
 # Every value is a fraction shown in percent, so one scale fits every chart; MCC can go below zero.
 x_scale = alt.Scale(domain=[min(0, shown["lower (percent)"].min(), shown["value (percent)"].min()), 100])
 charts = st.columns(2)
@@ -187,11 +190,93 @@ for index, ((dataset, subset, metric), group) in enumerate(
     history_charts[index % 2].altair_chart(chart, width="stretch")
 st.caption("Hover a point for its checkpoint and run.")
 
-st.header("Minimal pairs two checkpoints disagree on")
 pair_scores = pd.DataFrame(read_runs(RESULTS_DIR, PAIR_SCORES))
 # The pair scores of the runs behind the charts: one run per checkpoint and dataset.
 runs = shown[shown["suite"] == "minimal-pair"][MATCH_KEYS + ["label"]].drop_duplicates()
 pairs = pair_scores.merge(runs, on=MATCH_KEYS) if not pair_scores.empty else runs.iloc[:0]
+
+
+def swapped_words(better, worse):
+    """The words where the idiomatic sentence and its altered version differ."""
+    a, b = better.split(), worse.split()
+    start = 0
+    while start < min(len(a), len(b)) and a[start] == b[start]:
+        start += 1
+    end = 0
+    while end < min(len(a), len(b)) - start and a[-1 - end] == b[-1 - end]:
+        end += 1
+    strip = lambda words: " ".join(words).strip(".,!?;:")
+    return strip(a[start:len(a) - end]), strip(b[start:len(b) - end])
+
+
+st.header("Idioms pair by pair")
+st.write(
+    "Every pair of the Idioms dataset for the checkpoints above. ✓ means the checkpoint gives the idiomatic "
+    "sentence the higher mean log-probability per token, the rule behind the reported accuracy; ✗ means it "
+    "prefers the altered sentence or scores them the same."
+)
+idioms = pairs[pairs["dataset"] == "Idioms"].copy() if not pairs.empty else pairs
+if idioms.empty:
+    st.info("No Idioms results for the checkpoints the filters show.")
+else:
+    idioms["right"] = (
+        idioms["better_summed_log_probability"] / idioms["better_token_count"]
+        > idioms["worse_summed_log_probability"] / idioms["worse_token_count"]
+    )
+    idioms["challenge"] = idioms["subsets"].apply(lambda subsets: "challenge" in subsets)
+    # A checkpoint's reference is often a long path; its last part names it well enough for a column.
+    def short(label):
+        quick = label.endswith(" (quick run)")
+        name = label.removesuffix(" (quick run)").rstrip("/").split("/")[-1].split("@")[0].removesuffix("-merged")
+        return name + (" (quick)" if quick else "")
+
+    names = {label: short(label) for label in idioms["label"].unique()}
+    idiom_labels = sorted(names, key=names.get)
+    # Start with the checkpoints of the most common model family, so a tiny test model does not
+    # crowd out the real comparison.
+    families = shown.drop_duplicates("label").set_index("label")["model_family"]
+    family = families.reindex(idiom_labels).mode()
+    default = [label for label in idiom_labels if family.empty or families.get(label) == family.iloc[0]][:6]
+    controls = st.columns([3, 1, 2])
+    chosen = controls[0].multiselect(
+        "Checkpoints", idiom_labels, default=default, format_func=names.get, key="idiom_checkpoints"
+    )
+    subset = controls[1].radio("Pairs", ["all", "challenge"], horizontal=True, key="idiom_subset")
+    which = controls[2].selectbox(
+        "Show",
+        ["Pairs at least one checkpoint gets wrong", "Pairs the checkpoints disagree on",
+         "Pairs every checkpoint gets wrong", "All pairs"],
+        key="idiom_filter",
+    )  # fmt: skip
+    table = idioms[idioms["label"].isin(chosen)]
+    if subset == "challenge":
+        table = table[table["challenge"]]
+    if not chosen or table.empty:
+        st.info("Pick at least one checkpoint with Idioms results.")
+    else:
+        wide = table.pivot_table(index=["better", "worse"], columns="label", values="right", aggfunc="first")
+        wide = wide[[label for label in chosen if label in wide.columns]]
+        wrong = (~wide.astype(bool)).sum(axis=1)
+        keep = {
+            "Pairs at least one checkpoint gets wrong": wrong > 0,
+            "Pairs the checkpoints disagree on": (wrong > 0) & (wrong < wide.shape[1]),
+            "Pairs every checkpoint gets wrong": wrong == wide.shape[1],
+            "All pairs": wrong >= 0,
+        }[which]
+        view = wide[keep].reset_index()
+        words = [swapped_words(better, worse) for better, worse in zip(view["better"], view["worse"])]
+        view.insert(1, "idiom word", [w[0] for w in words])
+        view.insert(2, "swapped in", [w[1] for w in words])
+        view["wrong"] = wrong[keep].to_numpy()
+        for label in wide.columns:
+            view[label] = view[label].map({True: "✓", False: "✗"})
+        view = view.drop(columns="worse").rename(columns={"better": "idiomatic sentence", **names})
+        view = view.sort_values(["wrong", "idiomatic sentence"], ascending=[False, True])
+        totals = ", ".join(f"{names[label]} {int((~wide[label].astype(bool)).sum())}" for label in wide.columns)
+        st.write(f"{len(view)} of {len(wide)} pairs shown. Wrong per checkpoint: {totals}.")
+        st.dataframe(view, hide_index=True, width="stretch")
+
+st.header("Minimal pairs two checkpoints disagree on")
 labels = list(pairs["label"].unique())
 if len(labels) < 2:
     st.info("Pick filters that show at least two checkpoints with minimal-pair suite results.")

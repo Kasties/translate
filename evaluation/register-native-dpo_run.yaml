@@ -1,0 +1,9 @@
+# The register-native SFT model plus a DPO LoRA (artifacts/dpo/register-native-dpo): native Swedish
+# passages preferred over stiff literal versions. Compare with base, NLU and register-native in the results repo.
+
+upload: true
+models:
+  - reference: /scratch/marka/checkpoints/register-native-dpo-merged
+    model_family: google/gemma-4-12B
+    training_data: register-native + DPO
+    training_method: lora + dpo

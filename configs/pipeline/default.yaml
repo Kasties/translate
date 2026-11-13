@@ -66,6 +66,10 @@ datagen:
   balance_tasks: true
   require_complete: false  # true = stop before SFT if the target was not reached
   refresh_inputs: false  # true = resume a build after its config/passages changed (recorded)
+  # A Hugging Face model repo, e.g. <user>/<repo>: when generation finishes, upload train.jsonl,
+  # accepted.jsonl, rejected.jsonl, report.json and state.json to <repo>/<experiment>/data/ (the repo
+  # is created private). Re-uploaded if a later run adds batches. null = keep the data local.
+  upload_repo: null
 
 # --- 3. Supervised fine-tuning (LoRA) --------------------------------------
 sft:
@@ -91,6 +95,10 @@ sft:
   lora_dropout: 0.05
   lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
   require_provenance: false  # true = only accept pipeline exports with accepted.jsonl
+  # A Hugging Face model repo, e.g. <user>/<repo>: after training, upload the adapter, manifest.json and
+  # finetune.yaml to <repo>/<experiment>/ (the repo is created private), then delete the trainer's
+  # checkpoint-* folders, which hold optimizer state no run resumes from. null = keep everything local.
+  upload_repo: null
 
 # --- 4. Evaluation: base model vs. base + adapter --------------------------
 eval:

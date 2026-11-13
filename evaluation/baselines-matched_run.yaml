@@ -1,0 +1,14 @@
+# MURI and Magpie baselines, each a random subset with the same token budget as the
+# register-native training data, fine-tuned with the same LoRA settings. Compare with
+# register-native-gemma4-31b-gen in the results repo.
+
+upload: true
+models:
+  - reference: /scratch/marka/checkpoints/baseline-muri-matched-merged
+    model_family: google/gemma-4-12B
+    training_data: MURI
+    training_method: lora
+  - reference: /scratch/marka/checkpoints/baseline-magpie-matched-merged
+    model_family: google/gemma-4-12B
+    training_data: MAGPIE
+    training_method: lora

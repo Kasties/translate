@@ -1,0 +1,7 @@
+# MURI baseline: a random MURI subset with the same token budget as the training data of
+# register-native-gemma4-31b-gen (scripts/baselines/match_tokens.py), fine-tuned and evaluated like it.
+#   ./pipeline run configs/pipeline/baseline-muri-matched.yaml --from sft
+sft:
+  train_file: artifacts/baselines/matched/muri.jsonl
+eval:
+  port: 8010  # 8000 is taken on balawar

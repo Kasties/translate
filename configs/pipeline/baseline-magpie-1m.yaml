@@ -1,0 +1,7 @@
+# Magpie baseline at a 1M-token budget (scripts/baselines/match_tokens.py --budget-tokens 1000000).
+# Contains every example of baseline-magpie-matched (259k tokens); same seed, so the draw order is shared.
+#   ./pipeline run configs/pipeline/baseline-magpie-1m.yaml --from sft
+sft:
+  train_file: artifacts/baselines/matched-1m/magpie.jsonl
+eval:
+  port: 8010  # 8000 is taken on balawar

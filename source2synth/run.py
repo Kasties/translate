@@ -221,11 +221,13 @@ def stage_settings(stage: str, config: dict, paths: Paths) -> dict:
                 "datagen_config": config["datagen"]["config"], "overrides": config["datagen"]["overrides"]}
     if stage == "generate":
         datagen = {k: v for k, v in config["datagen"].items()
-                   if k not in {"max_batches", "require_complete", "refresh_inputs"}}
+                   if k not in {"max_batches", "require_complete", "refresh_inputs", "upload_repo"}}
         return {"model": config["generator"]["model"], "revision": config["generator"]["revision"],
                 "datagen": datagen}
     if stage == "sft":
-        return {**config["sft"], "train_file": train_files(config, paths)}
+        # Where the adapter is uploaded afterwards does not change it.
+        settings = {k: v for k, v in config["sft"].items() if k != "upload_repo"}
+        return {**settings, "train_file": train_files(config, paths)}
     # Serving knobs and which benchmarks are enabled do not change a finished result.
     operational = {"port", "gpu_memory_utilization", "max_num_seqs"}
     settings = {k: v for k, v in config["eval"].items() if k not in operational}
@@ -621,7 +623,7 @@ def run_sft(config: dict, paths: Paths, dry_run: bool) -> None:
         if paths.sft.exists() and any(paths.sft.iterdir()):
             raise PipelineError(f"{display(paths.sft)} holds an unfinished training run. Inspect "
                                 f"{display(paths.logs / 'sft.log')}, then delete the directory to retry.")
-    settings = {k: v for k, v in sft.items() if k != "max_steps"}
+    settings = {k: v for k, v in sft.items() if k not in {"max_steps", "upload_repo"}}
     settings.update(train_file=files if len(files) > 1 else files[0], output_dir=display(paths.sft))
     paths.root.mkdir(parents=True, exist_ok=True)
     paths.finetune_config.write_text(
@@ -630,6 +632,95 @@ def run_sft(config: dict, paths: Paths, dry_run: bool) -> None:
     command = [python("train"), "-m", "source2synth.finetune", "--config", display(paths.finetune_config),
                "--max-steps", str(sft["max_steps"])]
     run_step(command, paths.logs / "sft.log", dry_run)
+
+
+def hub_api():
+    """An HfApi with the login token the subprocesses use, even when HF_HOME was moved."""
+    from huggingface_hub import HfApi
+
+    env = environment()
+    token = env.get("HF_TOKEN") or (Path(env["HF_TOKEN_PATH"]).read_text(encoding="utf-8").strip()
+                                    if env.get("HF_TOKEN_PATH") else None)
+    return HfApi(token=token)
+
+
+def upload_build(config: dict, paths: Paths, state: dict, dry_run: bool) -> None:
+    """Upload a finished build's exports to datagen.upload_repo under <experiment>/data/.
+
+    Runs whenever generation is done, also when it was skipped, so a failed upload is retried;
+    a build extended with more batches is uploaded again because its report changes.
+    """
+    repo = config["datagen"]["upload_repo"]
+    if not repo or stage_status("generate", config, paths)[0] != "done":
+        return
+    files = [paths.build / name for name in ("train.jsonl", "accepted.jsonl", "rejected.jsonl",
+                                             "report.json", "state.json") if (paths.build / name).exists()]
+    digest = fingerprint_file(paths.build / "report.json")
+    marker = paths.build / "uploaded.json"
+    if marker.exists():
+        saved = json.loads(marker.read_text(encoding="utf-8"))
+        if saved.get("repo") == repo and saved.get("report_sha256") == digest:
+            print(f"Data already uploaded to {repo}/{paths.name}/data", flush=True)
+            return
+    print(f"Uploading {len(files)} data files to {repo}/{paths.name}/data", flush=True)
+    if dry_run:
+        return
+    from huggingface_hub import CommitOperationAdd
+
+    api = hub_api()
+    api.create_repo(repo, private=True, exist_ok=True)
+    commit = api.create_commit(repo, commit_message=f"Add generated data {paths.name}", operations=[
+        CommitOperationAdd(path_in_repo=f"{paths.name}/data/{path.name}", path_or_fileobj=str(path))
+        for path in files])
+    record = {"repo": repo, "path": f"{paths.name}/data", "commit": commit.oid, "url": commit.commit_url,
+              "report_sha256": digest, "uploaded": now()}
+    write_json(marker, record)
+    state["stages"].setdefault("generate", {})["upload"] = record
+    save_state(paths, state)
+    print(f"Uploaded: {commit.commit_url}", flush=True)
+
+
+def fingerprint_file(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def upload_sft(config: dict, paths: Paths, state: dict, dry_run: bool) -> None:
+    """Upload a finished adapter to sft.upload_repo under <experiment>/, once, then delete checkpoints.
+
+    Runs whenever the sft stage is done, also when it was skipped, so a failed upload is retried
+    on the next run and earlier experiments can be uploaded with --only sft.
+    """
+    repo = config["sft"]["upload_repo"]
+    if not repo or stage_status("sft", config, paths)[0] != "done":
+        return
+    marker = paths.sft / "uploaded.json"
+    if marker.exists() and json.loads(marker.read_text(encoding="utf-8")).get("repo") == repo:
+        print(f"Adapter already uploaded to {repo}/{paths.name}", flush=True)
+        return
+    files = [path for path in sorted(paths.sft.rglob("*")) if path.is_file()
+             and not path.relative_to(paths.sft).parts[0].startswith("checkpoint-")]
+    if paths.finetune_config.exists():
+        files.append(paths.finetune_config)
+    print(f"Uploading {len(files)} files (adapter, manifest, finetune.yaml) to {repo}/{paths.name}", flush=True)
+    if dry_run:
+        return
+    from huggingface_hub import CommitOperationAdd
+
+    api = hub_api()
+    api.create_repo(repo, private=True, exist_ok=True)
+    operations = [CommitOperationAdd(
+        path_in_repo=f"{paths.name}/{path.relative_to(paths.sft if path.is_relative_to(paths.sft) else paths.root)}",
+        path_or_fileobj=str(path)) for path in files]
+    commit = api.create_commit(repo, operations=operations, commit_message=f"Add adapter {paths.name}")
+    record = {"repo": repo, "path": paths.name, "commit": commit.oid, "url": commit.commit_url, "uploaded": now()}
+    write_json(marker, record)
+    for checkpoint in sorted(paths.sft.glob("checkpoint-*")):
+        shutil.rmtree(checkpoint)
+    state["stages"].setdefault("sft", {})["upload"] = record
+    save_state(paths, state)
+    print(f"Uploaded: {commit.commit_url}; deleted the trainer checkpoints", flush=True)
 
 
 def run_eval(config: dict, paths: Paths, dry_run: bool) -> None:
@@ -722,6 +813,10 @@ def run(config: dict, first: str, last: str, dry_run: bool = False) -> None:
             state["stages"].setdefault(stage, {}).setdefault("settings", stage_settings(stage, config, paths))
             save_state(paths, state)
             print("Already complete; skipping.", flush=True)
+            if stage == "sft":
+                upload_sft(config, paths, state, dry_run)
+            if stage == "generate":
+                upload_build(config, paths, state, dry_run)
             continue
         if not dry_run:
             guard_changed(stage, config, paths, state)
@@ -740,6 +835,10 @@ def run(config: dict, first: str, last: str, dry_run: bool = False) -> None:
             state["stages"][stage].update(status="complete" if status == "done" else status,
                                           finished=now(), result=detail)
             save_state(paths, state)
+        if stage == "sft":
+            upload_sft(config, paths, state, dry_run)
+        if stage == "generate":
+            upload_build(config, paths, state, dry_run)
     if not dry_run:
         print(f"\nDone. Record: {display(paths.state)}", flush=True)
 

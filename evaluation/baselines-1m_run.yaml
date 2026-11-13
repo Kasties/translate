@@ -1,0 +1,13 @@
+# MURI and Magpie at a 1M-token budget, for the scaling comparison with the 259k-token runs
+# (baseline-*-matched). Same LoRA settings as every other run.
+
+upload: true
+models:
+  - reference: /scratch/marka/checkpoints/baseline-muri-1m-merged
+    model_family: google/gemma-4-12B
+    training_data: MURI
+    training_method: lora
+  - reference: /scratch/marka/checkpoints/baseline-magpie-1m-merged
+    model_family: google/gemma-4-12B
+    training_data: MAGPIE
+    training_method: lora

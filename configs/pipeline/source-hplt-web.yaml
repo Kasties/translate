@@ -1,0 +1,25 @@
+# Data-source test: the register-native pipeline with one seed source (web, data/hplt-full/web.jsonl).
+# Gemma 4 31B IT generates and reviews 1,500 rows; Gemma 4 12B is LoRA-tuned on the 259k-token
+# subset, like every other run. Run with scripts/run_source_experiment.sh source-hplt-web.
+data:
+  source: registers
+generator:
+  model: google/gemma-4-31B-it
+  revision: 842da3794eaa0b77d5f08bae87a17459d91ff475
+datagen:
+  mode: instructions
+  target: 1500  # more than the 259k-token budget needs; the subset is what gets trained on
+  batch_size: 25
+  max_batches: 100
+  require_complete: true
+  overrides:
+    registers:
+      sources:
+        - {name: source-hplt-web, namespace: source-hplt-web, kind: local, register: web, era: contemporary,
+           path: data/hplt-full/web.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)", license_url: "https://hplt-project.org/datasets/v3.0"}
+    instruction_data:
+      # Overrides merge into the defaults, so the Korp registers need an explicit 0.
+      register_weights: {web: 1, debate: 0, encyclopedia: 0, job-ad: 0}
+sft:
+  train_file: artifacts/subsets/source-hplt-web/source-hplt-web-259k.jsonl

@@ -1,0 +1,40 @@
+# The register-native pipeline with HPLT v3 seed paragraphs (news, forum, web) as sources instead of
+# Korp. Gemma 4 31B IT generates and reviews the instruction data; Gemma 4 12B is LoRA-tuned on a
+# subset with the same token budget as register-native-gemma4-31b-gen (259k tokens).
+#   python3 scripts/hplt/prepare_seeds.py hplt-seeds-50k-test.jsonl data/hplt
+#   ./pipeline run configs/pipeline/register-native-hplt.yaml --to generate
+#   .venv-train/bin/python scripts/baselines/match_tokens.py --reference \
+#       artifacts/source2synth/runs/register-native-gemma4-31b-gen/train.jsonl \
+#       --baseline hplt-259k=artifacts/source2synth/runs/register-native-hplt/train.jsonl --output artifacts/hplt
+#   ./pipeline run configs/pipeline/register-native-hplt.yaml --from sft
+data:
+  source: registers
+generator:
+  model: google/gemma-4-31B-it
+  revision: 842da3794eaa0b77d5f08bae87a17459d91ff475
+datagen:
+  mode: instructions
+  target: 1500  # more than the budget needs; the token-matched subset is what gets trained on
+  batch_size: 25
+  max_batches: 100
+  require_complete: true
+  overrides:
+    registers:
+      sources:
+        - {name: hplt-news, namespace: hplt, kind: local, register: news, era: contemporary,
+           path: data/hplt/news.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)",
+           license_url: "https://hplt-project.org/datasets/v3.0"}
+        - {name: hplt-forum, namespace: hplt, kind: local, register: forum, era: contemporary,
+           path: data/hplt/forum.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)",
+           license_url: "https://hplt-project.org/datasets/v3.0"}
+        - {name: hplt-web, namespace: hplt, kind: local, register: web, era: contemporary,
+           path: data/hplt/web.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)",
+           license_url: "https://hplt-project.org/datasets/v3.0"}
+    instruction_data:
+      # Overrides merge into the defaults, so the Korp registers need an explicit 0.
+      register_weights: {news: 1, forum: 1, web: 1, debate: 0, encyclopedia: 0, job-ad: 0}
+sft:
+  train_file: artifacts/hplt/hplt-259k.jsonl

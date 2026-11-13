@@ -1,0 +1,9 @@
+# The register-native pipeline with HPLT v3 seeds (news, forum, web), trained on a 259k-token subset
+# like register-native-gemma4-31b-gen, MURI and Magpie. Compare with those in the results repo.
+
+upload: true
+models:
+  - reference: /scratch/marka/checkpoints/register-native-hplt-merged
+    model_family: google/gemma-4-12B
+    training_data: register-native (HPLT)
+    training_method: lora
