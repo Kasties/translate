@@ -27,6 +27,13 @@ EUROEVAL_SWEDISH_DATASETS = [
 EUROEVAL_OUTPUT = "euroeval_benchmark_results.jsonl"
 
 
+def chosen_euroeval_datasets(names):
+    """The datasets a run names: "all" stands for every Swedish dataset, and no names for the defaults."""
+    if names and "all" in names:
+        return EUROEVAL_SWEDISH_DATASETS
+    return names or EUROEVAL_DATASETS
+
+
 def run_euroeval(run_dir, checkpoint, datasets, full_run):
     """Run EuroEval on one checkpoint, keep its output lines in run_dir and append the result records.
 

@@ -80,7 +80,7 @@ The fields of the run config apply to every checkpoint in it:
 | `models` | the checkpoints to evaluate, one entry each | required |
 | `suites` | the suites to run | `[minimal-pair, euroeval]` |
 | `minimal_pair_datasets` | the datasets of the minimal-pair suite | all four |
-| `euroeval_datasets` | the datasets of the EuroEval suite | the five in the table below |
+| `euroeval_datasets` | the datasets of the EuroEval suite, or `all` for every Swedish one | the five in the table below |
 | `full_run` | `true` marks the results as reportable | `false` |
 | `upload` | `true` uploads the run to the repo in `RESULTS_REPO` | `false` |
 
@@ -106,7 +106,7 @@ It runs the same defaults as a run config. `--suite`, `--minimal-pair-dataset` a
 
 ### Suites and datasets
 
-To change the datasets, write the whole list you want in the run config. Leave a dataset out to remove it, and add a name to add one. Any Swedish dataset on the [EuroEval list](https://euroeval.com/datasets/swedish) works, such as `swedish-facts` or `belebele-sv`.
+To change the datasets, write the whole list you want in the run config. Leave a dataset out to remove it, and add a name to add one. Any Swedish dataset on the [EuroEval list](https://euroeval.com/datasets/swedish) works, such as `swedish-facts` or `belebele-sv`. To run every Swedish dataset of EuroEval 18.1.0, all 24 of them, write `euroeval_datasets: all`, or give `--euroeval-dataset all` on the command line. That includes large benchmarks such as `mmlu-sv` and `hellaswag-sv`, so start with a quick run.
 
 ```yaml
 suites: [minimal-pair]                                   # no EuroEval suite

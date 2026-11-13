@@ -2,7 +2,7 @@
 
 uv run python -m evaluation run --config example_run.yaml [--results-dir DIR]
 uv run python -m evaluation run --model HuggingFaceTB/SmolLM2-135M [--revision REVISION]
-    [--suite minimal-pair euroeval] [--minimal-pair-dataset Idioms ...] [--euroeval-dataset scala-sv ...]
+    [--suite minimal-pair euroeval] [--minimal-pair-dataset Idioms ...] [--euroeval-dataset scala-sv ... | all]
     [--full-run] [--no-upload] [--results-dir DIR]
 uv run python -m evaluation download [--results-dir DIR]
 uv run python -m evaluation table [--include-quick-runs] [--results-dir DIR]
@@ -13,7 +13,12 @@ from pathlib import Path
 
 import yaml
 
-from evaluation.euroeval_runner import EUROEVAL_DATASETS, EUROEVAL_SWEDISH_DATASETS, run_euroeval
+from evaluation.euroeval_runner import (
+    EUROEVAL_DATASETS,
+    EUROEVAL_SWEDISH_DATASETS,
+    chosen_euroeval_datasets,
+    run_euroeval,
+)
 from evaluation.minimal_pairs import MINIMAL_PAIR_DATASETS, evaluate, load_model
 from evaluation.results import (
     SUITES,
@@ -38,10 +43,13 @@ def load_run_config(path):
     config = yaml.safe_load(Path(path).read_text())
     if not isinstance(config, dict) or "models" not in config or set(config) - set(RUN_CONFIG_FIELDS):
         raise ValueError(f"The run config {path} needs models and only these fields: {RUN_CONFIG_FIELDS}")
+    # euroeval_datasets: all runs every Swedish EuroEval dataset.
+    if config.get("euroeval_datasets") == "all":
+        config["euroeval_datasets"] = ["all"]
     for field, known in [
         ("suites", SUITES),
         ("minimal_pair_datasets", list(MINIMAL_PAIR_DATASETS)),
-        ("euroeval_datasets", EUROEVAL_SWEDISH_DATASETS),
+        ("euroeval_datasets", EUROEVAL_SWEDISH_DATASETS + ["all"]),
     ]:
         unknown = set(config.get(field) or []) - set(known)
         if unknown:
@@ -50,7 +58,7 @@ def load_run_config(path):
         "checkpoints": load_model_list(config["models"]),
         "suites": config.get("suites") or SUITES,
         "minimal_pair_datasets": config.get("minimal_pair_datasets") or list(MINIMAL_PAIR_DATASETS),
-        "euroeval_datasets": config.get("euroeval_datasets") or EUROEVAL_DATASETS,
+        "euroeval_datasets": chosen_euroeval_datasets(config.get("euroeval_datasets")),
         "full_run": bool(config.get("full_run")),
         "upload": bool(config.get("upload")),
     }
@@ -86,9 +94,10 @@ def main(argv=None):
     run.add_argument(
         "--euroeval-dataset",
         action="append",
-        choices=EUROEVAL_SWEDISH_DATASETS,
+        choices=EUROEVAL_SWEDISH_DATASETS + ["all"],
         metavar="EUROEVAL_DATASET",
-        help=f"a Swedish EuroEval dataset to run; repeat for more. Default is {', '.join(EUROEVAL_DATASETS)}",
+        help=f"a Swedish EuroEval dataset to run, or all for every one of the {len(EUROEVAL_SWEDISH_DATASETS)}; "
+        f"repeat for more. Default is {', '.join(EUROEVAL_DATASETS)}",
     )
     run.add_argument("--full-run", action="store_true", help="mark the results as reportable; default is a quick run")
     run.add_argument("--no-upload", action="store_true", help="keep the run's files on this machine only")
@@ -115,7 +124,7 @@ def main(argv=None):
                 "checkpoints": [checkpoint_from_metadata(args.model, args.revision)],
                 "suites": args.suite or SUITES,
                 "minimal_pair_datasets": args.minimal_pair_dataset or list(MINIMAL_PAIR_DATASETS),
-                "euroeval_datasets": args.euroeval_dataset or EUROEVAL_DATASETS,
+                "euroeval_datasets": chosen_euroeval_datasets(args.euroeval_dataset),
                 "full_run": args.full_run,
                 "upload": not args.no_upload,
             }

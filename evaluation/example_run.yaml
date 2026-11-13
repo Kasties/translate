@@ -2,7 +2,7 @@
 
 suites: [minimal-pair, euroeval]                                           # minimal-pair, euroeval
 minimal_pair_datasets: [Idioms, DaLAJ, ScaLA, Translationese]              # any of these four
-euroeval_datasets: [scala-sv, swedn, skolprov, multi-wiki-qa-sv, swerec]   # any Swedish EuroEval dataset
+euroeval_datasets: [scala-sv, swedn, skolprov, multi-wiki-qa-sv, swerec]   # any Swedish EuroEval dataset, or all
 full_run: false                                                            # true, false
 upload: false                                                              # true, false
 
