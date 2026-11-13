@@ -102,6 +102,8 @@ def chunk_main(name: str, processed: Path, description: str, size: int = 2000) -
     parser.add_argument("--split", default="train")
     parser.add_argument("--size", type=int, default=size)
     args = parser.parse_args()
+    if args.size < 1:
+        parser.error(f"--size must be a positive number of rows, got {args.size}")
 
     source = processed / f"{args.split}.jsonl"
     if not source.exists():
