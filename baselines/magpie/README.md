@@ -1,8 +1,8 @@
 # Magpie baseline: Swedish fine-tuning data
 
-These steps build the Swedish Magpie dataset ([matsten/Magpie-SWE-Llama-3.3-70B-Instruct-V3-0324-responses](https://huggingface.co/datasets/matsten/Magpie-SWE-Llama-3.3-70B-Instruct-V3-0324-responses)) in chat format, as a single training file.
+These steps build the Swedish Magpie dataset ([matsten/Magpie-SWE-Llama-3.3-70B-Instruct-V3-0324-responses](https://huggingface.co/datasets/matsten/Magpie-SWE-Llama-3.3-70B-Instruct-V3-0324-responses)) in chat format, as a single training file and as 2,000-example chunks for staged fine-tuning (the same chunk size as MURI).
 
-**The ready-to-use file is committed to the repository.** After pulling, you will find it at `baselines/magpie/data/processed/train.jsonl`. You only need the steps below to regenerate it, which takes under a minute.
+**The ready-to-use file is committed to the repository.** After pulling, you will find it at `baselines/magpie/data/processed/train.jsonl`, with the chunks in `baselines/magpie/data/processed/chunks/`. You only need the steps below to regenerate it, which takes under a minute.
 
 The dataset was published with *Synthetic Instruction Generation for Low-Resource Nordic Languages: Viability and Limitations in LLM Instruction-Tuning* ([LREC 2026](https://aclanthology.org/2026.lrec-1.838/)). Llama-3.3-70B-Instruct generated the instructions directly in Swedish, and they were quality-filtered. DeepSeek-V3-0324 generated the responses.
 
@@ -24,15 +24,20 @@ uv run python -m baselines.magpie.download
 
 # 3. Convert to chat-format JSONL
 uv run python -m baselines.magpie.format_for_finetuning
+
+# 4. Split the training set into 2,000-example chunks
+uv run python -m baselines.magpie.chunk
 ```
 
 ## Output
 
-The output is one file in `baselines/magpie/data/processed/`:
+All output goes to `baselines/magpie/data/processed/`:
 
 | File | Examples | Use |
 |---|---|---|
-| `train.jsonl` | 11,635 | Training |
+| `chunks/train_chunk_01_of_06.jsonl` … `train_chunk_05_of_06.jsonl` | 2,000 each | Training, one chunk per stage |
+| `chunks/train_chunk_06_of_06.jsonl` | 1,635 | Training, last stage |
+| `train.jsonl` | 11,635 | The full training set. It contains the same rows as all the chunks together. |
 
 Each line is one example, in the same format as the MURI baseline:
 
