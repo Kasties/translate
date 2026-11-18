@@ -1,0 +1,3 @@
+# MURI baseline for the rn2 suite: 125k supervised (assistant) tokens. Training only: --only sft.
+sft:
+  train_file: artifacts/subsets/rn2-muri/rn2-muri-125k.jsonl

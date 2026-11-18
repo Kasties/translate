@@ -1,0 +1,10 @@
+# rn2-hplt plus the LLM-as-a-judge on backtranslation instructions (ported from
+# shaurya-instruction_synthesis): Qwen scores relevance and idiomaticity 1-5, both must reach 3,
+# and a failing instruction is rewritten from its feedback up to 3 times. The only difference from rn2-hplt.
+extends: rn2-hplt.yaml
+datagen:
+  overrides:
+    instruction_data:
+      instruction_judge: {enabled: true, threshold: 3, max_refinements: 3}
+sft:
+  train_file: artifacts/subsets/rn2-hplt-judge/rn2-hplt-judge-125k.jsonl

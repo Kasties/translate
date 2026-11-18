@@ -1,0 +1,11 @@
+# Judge ablation: source-hplt-forum with Shaurya's LLM-as-a-judge on backtranslation instructions (relevance and
+# idiomaticity scored 1-5, both must reach 3; up to 3 rewrites from the judge's feedback). The judge is
+# the generator itself, Gemma 4 31B IT, so the judge is the only difference from source-hplt-forum.
+# Run with scripts/run_source_experiment.sh source-hplt-forum-judge.
+extends: source-hplt-forum.yaml
+datagen:
+  overrides:
+    instruction_data:
+      instruction_judge: {enabled: true, threshold: 3, max_refinements: 3}
+sft:
+  train_file: artifacts/subsets/source-hplt-forum-judge/source-hplt-forum-judge-259k.jsonl

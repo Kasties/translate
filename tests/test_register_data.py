@@ -18,7 +18,7 @@ from source2synth import run as pipeline
 from source2synth.common import read_config, read_jsonl, write_jsonl
 from source2synth.finetune import load_training_rows, tokenize_rows
 from source2synth.instruction_data import (
-    CompletionClient, Grounded, Instruction, Review, build_instructions, compare_runs,
+    CompletionClient, Grounded, Instruction, InstructionEvaluation, Review, build_instructions, compare_runs,
     make_example, quotas, register_quotas, review_request, training_record,
 )
 from source2synth.register_sampling import cluster_documents, diversity, efficiency, select
@@ -221,14 +221,23 @@ def fixture_pool(path):
 
 class FakeClient:
     """Journal a deterministic response through the actual CompletionClient."""
-    def __init__(self, config, directory):
-        self.actual = CompletionClient(config, directory)
+    def __init__(self, config, directory, model=None):
+        self.actual = CompletionClient(config, directory, model)
         self.current_source = None
 
+    models = {}  # call key -> model id that served it
+
     def call(self, key, prompt, schema, limit, temperature=0.7):
+        FakeClient.models[key] = self.actual.model["id"]
         if key.endswith("-review"):
-            content = {"swedish": True, "self_contained": True, "source_faithful": True,
-                       "task_fulfilled": True, "reason": "Alla krav uppfylls."}
+            content = {"reason": "Alla krav uppfylls.", "intact": True, "nonstandard_style": False,
+                       "self_contained": True, "source_faithful": True, "task_fulfilled": True}
+        elif schema is InstructionEvaluation:
+            # Every first judgement fails; a refined instruction passes unless it was refined from
+            # attempt 0000000, which never passes.
+            low = key.endswith("-judge-0") or key.startswith("0000000-")
+            content = {"relevance_score": 2 if low else 4, "idiomaticity_score": 4,
+                       "reasoning": "Instruktionen är för vag."}
         elif schema is Instruction:
             content = {"possible": True, "instruction": f"Skriv en kort berättelse om oro och lättnad i situation {key}."}
         else:
@@ -372,6 +381,52 @@ class GenerationTests(unittest.TestCase):
             self.assertTrue(rerun["accepted"])
             self.assertEqual(len(list((parallel / "attempts").glob("*.json"))), 10)
 
+    def test_instruction_judge_refines_or_rejects_backtranslations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = fixture_pool(root)
+            config["instruction_data"]["weights"] = {"backtranslation": 0.5, "rewrite": 0.5}
+            config["instruction_data"]["instruction_judge"] = {"enabled": True, "threshold": 3,
+                                                               "max_refinements": 2}
+            prepare_registers(config, root / "data")
+            args = argparse.Namespace(data_dir=root / "data", output_dir=root / "output", split="slice1",
+                run_name="judged", target=8, batch_size=4, max_batches=10, resume=False)
+            report = build_instructions(config, args, FakeClient)
+            run = root / "output/runs/judged"
+            self.assertTrue(report["complete"])
+            first = json.loads((run / "attempts/0000000.json").read_text())
+            self.assertEqual(first["task"], "backtranslation")
+            self.assertEqual(first["reason"], "instruction_judge_failed")
+            self.assertEqual(len(first["instruction_judgements"]), 3)  # first draft + 2 refinements
+            summary = report["instruction_judge"]
+            self.assertEqual(summary["failed_after_refinement"], 1)
+            self.assertEqual(summary["rounds_to_pass"], {"1": 4})
+            self.assertEqual(summary["mean_first_scores"]["relevance_score"], 2)
+            for path in (run / "attempts").glob("*.json"):
+                attempt = json.loads(path.read_text())
+                if attempt["task"] == "rewrite":
+                    self.assertNotIn("instruction_judgements", attempt)
+
+    def test_tasks_share_a_passage_cursor_and_reviewer_does_review_and_judge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = fixture_pool(root)
+            config["instruction_data"]["weights"] = {"backtranslation": 0.5, "rewrite": 0.5}
+            config["instruction_data"]["instruction_judge"] = {"enabled": True}
+            config["instruction_data"]["reviewer"] = {"id": "qwen-judge", "endpoint": "http://127.0.0.1:9/v1"}
+            prepare_registers(config, root / "data")
+            args = argparse.Namespace(data_dir=root / "data", output_dir=root / "output", split="slice1",
+                run_name="shared", target=12, batch_size=4, max_batches=10, resume=False)
+            FakeClient.models.clear()
+            report = build_instructions(config, args, FakeClient)
+            self.assertTrue(report["complete"])
+            accepted = read_jsonl(root / "output/runs/shared/accepted.jsonl")
+            # Before the fix rewrite restarted at index 0 and reused backtranslation's passages.
+            self.assertEqual(len({item["source"]["id"] for item in accepted}), len(accepted))
+            for key, model in FakeClient.models.items():
+                reviewer_call = key.endswith("-review") or "-judge-" in key
+                self.assertEqual(model == "qwen-judge", reviewer_call, key)
+
     def test_native_review_shows_target_once_and_schema_is_enforced(self):
         # Regressions: a duplicated source block read as "copied from the source", and
         # unconstrained JSON echoed schema keys such as "title" that strict parsing rejects.
@@ -382,8 +437,8 @@ class GenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             client = CompletionClient(read_config(), Path(tmp))
             response = mock.Mock()
-            review = {"swedish": True, "self_contained": True, "source_faithful": True,
-                      "task_fulfilled": True, "reason": "Bra."}
+            review = {"reason": "Bra.", "intact": True, "nonstandard_style": True,
+                      "self_contained": True, "source_faithful": True, "task_fulfilled": True}
             response.json.return_value = {"choices": [{"finish_reason": "stop", "message": {
                 "content": json.dumps(review)}}], "usage": {"completion_tokens": 5}}
             with mock.patch.object(client.session, "post", return_value=response) as post:

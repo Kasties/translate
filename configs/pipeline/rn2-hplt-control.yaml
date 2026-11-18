@@ -1,0 +1,6 @@
+# Response-only control for rn2-hplt: the same 125k-token subset with every backtranslation
+# instruction replaced by "Skriv en text på svenska." (scripts/controls/generic_prompt.py).
+# Tests whether the generated instruction matters. Training only: --only sft.
+extends: rn2-hplt.yaml
+sft:
+  train_file: artifacts/subsets/rn2-hplt-control/rn2-hplt-control-125k.jsonl

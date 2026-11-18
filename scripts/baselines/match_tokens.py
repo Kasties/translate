@@ -13,6 +13,10 @@ smallest baseline's, and examples longer than --max-length are left out of the p
 finetune.py refuses to truncate them (MURI has a few raw web texts of up to 37,500 tokens).
 Counting uses the template our adapters were trained with (USER:/ASSISTANT: turns), because the
 base model has none.
+
+--count answer (the default) budgets supervised tokens: the loss is on the assistant answer only,
+so matching whole examples gave instruction-heavy baselines up to 1.8x the supervised tokens of
+our data. --count whole reproduces the earlier subsets.
 """
 
 import argparse
@@ -32,6 +36,8 @@ parser.add_argument("--template", type=Path,
 parser.add_argument("--budget-tokens", type=int,
                     help="fixed budget instead of the reference's total; the same seed draws in the same order, "
                          "so a larger budget keeps every example of a smaller one")
+parser.add_argument("--count", choices=["answer", "whole"], default="answer",
+                    help="what the budget counts: assistant-answer (supervised) tokens or whole examples")
 parser.add_argument("--max-length", type=int, default=2048)
 parser.add_argument("--seed", type=int, default=0)
 args = parser.parse_args()
@@ -55,12 +61,12 @@ def lengths(rows: list[dict]) -> tuple[np.ndarray, np.ndarray]:
 
 reference = read(args.reference)
 ref_whole, ref_answer = lengths(reference)
-budget = args.budget_tokens or int(ref_whole.sum())
+budget = args.budget_tokens or int((ref_answer if args.count == "answer" else ref_whole).sum())
 report = {"reference": {"path": str(args.reference), "examples": len(reference), "tokens": int(ref_whole.sum()),
                         "answer_tokens": int(ref_answer.sum()), "median_tokens": float(np.median(ref_whole))},
-          "budget_tokens": budget, "tokenizer": args.tokenizer, "max_length": args.max_length, "seed": args.seed}
+          "budget_tokens": budget, "budget_counts": args.count, "tokenizer": args.tokenizer, "max_length": args.max_length, "seed": args.seed}
 print(f"reference: {len(reference)} examples, {ref_whole.sum():,} tokens (answers {ref_answer.sum():,}); "
-      f"budget {budget:,} tokens")
+      f"budget {budget:,} {args.count} tokens")
 for spec in args.baseline:
     name, path = spec.split("=", 1)
     rows = read(Path(path))
@@ -68,7 +74,8 @@ for spec in args.baseline:
     fits = whole <= args.max_length
     order = np.random.default_rng(args.seed).permutation(len(rows))
     order = order[fits[order]]
-    keep = np.sort(order[np.cumsum(whole[order]) <= budget])
+    counted = answer if args.count == "answer" else whole
+    keep = np.sort(order[np.cumsum(counted[order]) <= budget])
     out = args.output / f"{name}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(rows[i], ensure_ascii=False) + "\n" for i in keep), encoding="utf-8")

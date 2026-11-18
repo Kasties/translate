@@ -1,0 +1,43 @@
+# Register-native v2, after the review of the first experiments:
+# - one passage cursor per register, so no passage is the target of two tasks;
+# - an independent reviewer (Qwen 3.8 27B FP8) instead of Gemma reviewing its own drafts, with the
+#   swedish flag split into intact (rejects broken text) and nonstandard_style (recorded only);
+# - trained on 125k supervised (assistant) tokens, not 259k whole-example tokens.
+# Gemma 4 31B IT generates with on-the-fly FP8 so that both models fit on the 96 GB card.
+# Seeds: HPLT v3 news, forum and web paragraphs, equal shares. Run with scripts/run_rn2_suite.sh.
+data:
+  source: registers
+generator:
+  model: google/gemma-4-31B-it
+  revision: 842da3794eaa0b77d5f08bae87a17459d91ff475
+  gpu_memory_utilization: 0.52
+  vllm_args: [--quantization, fp8]
+reviewer:
+  model: Qwen/Qwen3.8-27B-FP8
+  revision: c3a462cc3d38cf351f3b26cbd763469eeb74ef81
+  port: 8091  # 8081 is taken on this machine
+  gpu_memory_utilization: 0.40
+  extra_body: {chat_template_kwargs: {enable_thinking: false}}
+datagen:
+  mode: instructions
+  target: 1500  # more than 125k supervised tokens need; the subset is what gets trained on
+  batch_size: 25
+  max_batches: 100
+  require_complete: true
+  overrides:
+    registers:
+      sources:
+        - {name: hplt-news, namespace: hplt-news, kind: local, register: news, era: contemporary,
+           path: data/hplt-full/news.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)", license_url: "https://hplt-project.org/datasets/v3.0"}
+        - {name: hplt-forum, namespace: hplt-forum, kind: local, register: forum, era: contemporary,
+           path: data/hplt-full/forum.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)", license_url: "https://hplt-project.org/datasets/v3.0"}
+        - {name: hplt-web, namespace: hplt-web, kind: local, register: web, era: contemporary,
+           path: data/hplt-full/web.jsonl, max_documents: 5000, coherent: true,
+           license: "CC0-1.0 (HPLT packaging; text rights remain with the original authors)", license_url: "https://hplt-project.org/datasets/v3.0"}
+    instruction_data:
+      # Overrides merge into the defaults, so the Korp registers need an explicit 0.
+      register_weights: {news: 1, forum: 1, web: 1, debate: 0, encyclopedia: 0, job-ad: 0}
+sft:
+  train_file: artifacts/subsets/rn2-hplt/rn2-hplt-125k.jsonl

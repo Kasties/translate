@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import requests
-from pydantic import StrictBool
+from pydantic import Field, StrictBool
 
 from .backend import resolved_config
 from .common import fingerprint, normalize, read_jsonl, write_json, write_jsonl
@@ -51,11 +51,24 @@ class Grounded(StrictModel):
 
 
 class Review(StrictModel):
-    swedish: StrictBool
+    # Reasoning first, so the verdicts follow from it. intact replaces the former swedish flag,
+    # which also vetoed human text for talspråk or nonstandard spelling; style is now recorded in
+    # nonstandard_style and never rejects.
+    reason: str
+    intact: StrictBool
+    nonstandard_style: StrictBool
     self_contained: StrictBool
     source_faithful: StrictBool
     task_fulfilled: StrictBool
-    reason: str
+
+
+REVIEW_GATES = ("intact", "self_contained", "source_faithful", "task_fulfilled")
+
+
+class InstructionEvaluation(StrictModel):
+    reasoning: str
+    relevance_score: int = Field(strict=True, ge=1, le=5)
+    idiomaticity_score: int = Field(strict=True, ge=1, le=5)
 
 
 def atomic_json(path: Path, data):
@@ -66,8 +79,9 @@ def atomic_json(path: Path, data):
 
 class CompletionClient:
     """Journal responses before parsing so malformed JSON is still charged and replayable."""
-    def __init__(self, config: dict, directory: Path):
-        self.model = resolved_config(config)["model"]
+    def __init__(self, config: dict, directory: Path, model: dict | None = None):
+        # model: a different model for this client (id, endpoint, extra_body), e.g. the reviewer.
+        self.model = {**resolved_config(config)["model"], **model} if model else resolved_config(config)["model"]
         self.directory = directory
         # Attempts run in worker threads, and a requests.Session is not guaranteed to be
         # thread-safe, so every thread gets a session of its own.
@@ -194,6 +208,66 @@ ur källan till evidence. Svaret får inte bara vara hela källan kopierad.
 Källtext:\n{text}"""
 
 
+# LLM-as-a-judge for backtranslation instructions, ported from the shaurya-instruction_synthesis
+# branch: score relevance and idiomaticity 1-5, and rewrite a failing instruction from the
+# judge's feedback up to max_refinements times. Off unless instruction_data.instruction_judge.enabled.
+def instruction_judge_request(seed_doc: str, instruction: str) -> str:
+    return f"""Du är en sträng kvalitetsgranskare av svenska instruktioner.
+
+[KÄLLTEXT / FÖRVÄNTAT SVAR]
+{seed_doc}
+
+[GENERERAD INSTRUKTION]
+{instruction}
+
+Bedöm på en skala 1–5. En femma ska vara ovanlig och ges endast när båda kraven är helt uppfyllda.
+
+- relevance_score: 5 endast om källtexten är ett mycket naturligt, direkt och korrekt svar på just instruktionen. 3 betyder delvis relevant; 1 betyder fel, alltför vag eller metatext.
+- idiomaticity_score: 5 endast om texten är en enda välformulerad, idiomatisk svensk fråga/instruktion. Sätt 1 om den innehåller resonemang, analys, rubriker, punktlistor, formatinstruktioner, engelska metauttryck eller flera steg i stället för själva instruktionen.
+
+Skriv först en kort motivering på svenska och ge sedan båda heltalspoängen mellan 1 och 5."""
+
+
+def refinement_request(seed_doc: str, instruction: str, reasoning: str) -> str:
+    return f"""Skriv om den tidigare svenska instruktionen så att den åtgärdar utvärderarens återkoppling.
+
+[KÄLLTEXT]
+{seed_doc}
+
+[TIDIGARE INSTRUKTION]
+{instruction}
+
+[UTVÄRDERARENS ÅTERKOPPLING]
+{reasoning}
+
+Svara med exakt en rad och endast den förbättrade frågan eller instruktionen på idiomatisk svenska.
+Ingen analys, motivering, rubrik, punktlista eller etikett. Lägg inte till fakta som saknas i källtexten.
+Sätt possible=true och lägg instruktionen i instruction."""
+
+
+def judge_backtranslation(client, judge_client, attempt_id: str, source: dict, draft: dict, attempt: dict,
+                          judge: dict, judge_tokens: int, draft_tokens: int) -> dict:
+    """Judge, and refine on failure, a backtranslation draft. Returns the accepted draft."""
+    threshold, refinements = int(judge.get("threshold", 3)), int(judge.get("max_refinements", 3))
+    evaluations = attempt.setdefault("instruction_judgements", [])
+    for refinement in range(refinements + 1):
+        if not draft["possible"] or not draft["instruction"].strip():
+            raise ValueError("not_possible")
+        evaluation = judge_client.call(f"{attempt_id}-judge-{refinement}",
+                                 instruction_judge_request(source["text"], draft["instruction"]),
+                                 InstructionEvaluation, judge_tokens, 0.1)
+        evaluations.append({"instruction": draft["instruction"], **evaluation})
+        if evaluation["relevance_score"] >= threshold and evaluation["idiomaticity_score"] >= threshold:
+            return draft
+        if refinement == refinements:
+            raise ValueError("instruction_judge_failed")
+        draft = client.call(f"{attempt_id}-refine-{refinement + 1}",
+                            refinement_request(source["text"], draft["instruction"], evaluation["reasoning"]),
+                            Instruction, draft_tokens)
+        attempt["draft"] = draft
+    raise AssertionError("unreachable")
+
+
 def make_example(task: str, source: dict, draft: dict, index: int, topics: list[str]) -> dict:
     if not draft["possible"]:
         raise ValueError("not_possible")
@@ -237,7 +311,10 @@ NATIVE_REVIEW = {
     "backtranslation": """Uppgiftstyp: omvänd instruktion. Svaret är en befintlig, människoskriven
 text som används oförändrad; instruktionen har skrivits i efterhand för att passa den.
 Att svaret är originaltexten är alltså avsiktligt och inget fel.
-- swedish: är svaret god svenska för sin språkperiod?
+- intact: är svaret en hel, läsbar svensk text? Sätt false endast för trasiga fragment,
+  maskinöversättning, annat språk eller sidskräp (menyer, cookie-texter, metadata).
+- nonstandard_style: innehåller svaret talspråk, slang, dialekt eller avvikande stavning?
+  Det är äkta människoskriven svenska, tillåtet och inget fel; ange det bara.
 - self_contained: går instruktionen att förstå utan dold källa, artikel eller tidigare samtal?
 - source_faithful: ber instruktionen bara om sådant som texten faktiskt innehåller?
 - task_fulfilled: är texten ett rimligt och fullständigt svar på instruktionen? En berättelse,
@@ -246,7 +323,10 @@ Att svaret är originaltexten är alltså avsiktligt och inget fel.
     "rewrite": """Uppgiftstyp: omskrivning till naturlig svenska. Instruktionen innehåller en stel,
 bokstavlig version som en modell har skrivit; svaret är den ursprungliga, människoskrivna
 texten. Att svaret inte liknar en ny omskrivning är alltså avsiktligt och inget fel.
-- swedish: är svaret god svenska för sin språkperiod?
+- intact: är svaret en hel, läsbar svensk text? Sätt false endast för trasiga fragment,
+  maskinöversättning, annat språk eller sidskräp (menyer, cookie-texter, metadata).
+- nonstandard_style: innehåller svaret talspråk, slang, dialekt eller avvikande stavning?
+  Det är äkta människoskriven svenska, tillåtet och inget fel; ange det bara.
 - self_contained: räcker den bokstavliga versionen som underlag för omskrivningen?
 - source_faithful: har den bokstavliga versionen HELA svarets betydelse, perspektiv och
   sakuppgifter, utan tillägg?
@@ -270,7 +350,8 @@ Motivera kort (högst 15 ord)."""
 Uppgiftstyp: {item['task']}.
 Källa:\n{item['source']['text']}\n\nInstruktion:\n{item['input']}
 \nFöreslaget svar:\n{item['output']}
-Är svaret god svenska för sin språkperiod? Har instruktionen all kontext som
+intact: är svaret korrekt och läsbar svenska för sin språkperiod? nonstandard_style:
+innehåller svaret talspråk, slang eller avvikande stavning? Har instruktionen all kontext som
 behövs? Följer svaret instruktionen, utan att lägga till ogrundade fakta?
 Vid grounded ska varje sakpåstående stödjas av källan.
 Vid NLU: granska även facit och uppgiftens entydighet. Syntetiska hypoteser och
@@ -309,6 +390,17 @@ def export_build(run: Path, state: dict, client, source_manifest: dict, source_d
               "loss": "Assistant response and EOS only; system/user tokens masked by finetune.py",
               "notes": ["Token denominator includes draft, solver and review completions, including rejects.",
                         "Coverage and distinct-n are proxies; evaluate idiom quality and task performance separately."]}
+    judged = [a for a in attempts if a.get("instruction_judgements")]
+    if judged:
+        passed = [a for a in judged if a.get("reason") != "instruction_judge_failed"]
+        report["instruction_judge"] = {
+            "judged_attempts": len(judged),
+            "rounds_to_pass": dict(Counter(str(len(a["instruction_judgements"]) - 1) for a in judged
+                                           if a.get("reason") != "instruction_judge_failed")),
+            "failed_after_refinement": sum(a.get("reason") == "instruction_judge_failed" for a in judged),
+            "accepted_after_review": sum(bool(a.get("accepted")) for a in passed),
+            "mean_first_scores": {k: sum(a["instruction_judgements"][0][k] for a in judged) / len(judged)
+                                  for k in ("relevance_score", "idiomaticity_score")}}
     atomic_json(run / "report.json", report)
     return report
 
@@ -342,9 +434,11 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                 raise ValueError(f"{task} needs {cells[task][register]} {register} passages but {args.split} has "
                                  f"{capacity}. Lower the target or that register's weight, or collect more "
                                  f"{register} documents.")
-    # Version 3: schema-constrained decoding and task-specific review prompts. Runs made
-    # under older rules cannot be resumed, so one build never mixes two review regimes.
-    contract = {"version": 3, "target": args.target, "quotas": allocation, "register_quotas": cells,
+    # Version 3: schema-constrained decoding and task-specific review prompts. Version 4: one
+    # passage cursor per register shared across tasks, the intact/nonstandard_style review and an
+    # optional separate reviewer. Runs made under older rules cannot be resumed, so one build
+    # never mixes two regimes.
+    contract = {"version": 4, "target": args.target, "quotas": allocation, "register_quotas": cells,
                 "split": args.split,
                 "config_sha256": fingerprint(config), "passages_sha256": fingerprint(passages),
                 "comparison_contract": fingerprint({"pool": manifest["pool_sha256"],
@@ -359,6 +453,12 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
     else:
         atomic_json(run / "state.json", contract)
     client = client_factory(config, run / "calls")
+    # An independent reviewer model, when configured, does the semantic review and the
+    # instruction judge; otherwise the generator reviews its own drafts.
+    reviewer_settings = cfg.get("reviewer") or {}
+    reviewer = (client_factory(config, run / "calls", model={k: v for k, v in reviewer_settings.items()
+                                                                if k in {"id", "endpoint", "extra_body"}})
+                if reviewer_settings.get("id") else client)
     report = export_build(run, contract, client, manifest, source_dir)
     accepted = read_jsonl(run / "accepted.jsonl")
     # Prompts and native targets of accepted and in-flight attempts. An attempt reserves its
@@ -376,11 +476,13 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                         if key not in finished)
     # Every attempt counts once, finished or not: its source index is used up either way.
     cell_attempts = Counter((item["task"], item["register"]) for item in {**dispatched, **finished}.values())
+    register_attempts = Counter(item["register"] for item in {**dispatched, **finished}.values())
     next_id = max((int(key) for key in finished.keys() | dispatched.keys()), default=-1) + 1
     order = [(task, register) for task in allocation for register in cells[task] if cells[task][register]]
     in_flight = Counter()
     lock = threading.Lock()
     topics = list(config["nlu"]["topics"])
+    judge = cfg.get("instruction_judge") or {}
 
     def run_attempt(attempt_id: str, attempt: dict) -> dict:
         """Draft, check, solve and review one attempt; runs in a worker thread."""
@@ -393,6 +495,9 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
             limit = cfg["backtranslation_max_tokens"] if task == "backtranslation" else cfg["generation_max_tokens"]
             draft = client.call(attempt_id + "-draft", prompt, schema, limit)
             attempt["draft"] = draft
+            if task == "backtranslation" and judge.get("enabled"):
+                draft = judge_backtranslation(client, reviewer, attempt_id, source, draft, attempt, judge,
+                                              cfg.get("judge_max_tokens", cfg["review_max_tokens"]), limit)
             item = make_example(task, source, draft, index, topics)
             keys = {("input", normalize(item["input"]))}
             if task in NATIVE_TASKS:
@@ -409,10 +514,10 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                 attempt["prediction"] = prediction
                 if not prediction_matches(item, prediction):
                     raise ValueError("independent_solver_mismatch")
-            review = client.call(attempt_id + "-review", review_request(item), Review,
+            review = reviewer.call(attempt_id + "-review", review_request(item), Review,
                                  cfg["review_max_tokens"], 0.1)
             attempt["review"] = review
-            if not all(review[key] is True for key in ("swedish", "self_contained", "source_faithful", "task_fulfilled")):
+            if not all(review[key] is True for key in REVIEW_GATES):
                 raise ValueError("semantic_review_failed")
             item["review"] = review
             attempt.update(accepted=True, example=item)
@@ -438,7 +543,9 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                     if not pending:
                         break
                     task, register = min(pending, key=lambda c: (cell_attempts[c] / cells[c[0]][c[1]], order.index(c)))
-                    index = cell_attempts[(task, register)]
+                    # One cursor per register, shared by every task, so no passage is the
+                    # source of two tasks until the register's pool has been used up once.
+                    index = register_attempts[register]
                     rows = by_register[register]
                     attempt = {"task": task, "register": register, "source_id": rows[index % len(rows)]["id"],
                                "index": index}
@@ -446,6 +553,7 @@ def build_instructions(config: dict, args, client_factory=CompletionClient) -> d
                     next_id += 1
                     atomic_json(run / "dispatched" / f"{attempt_id}.json", attempt)
                     cell_attempts[(task, register)] += 1
+                    register_attempts[register] += 1
                     attempt = {**attempt, "accepted": False}
                 in_flight[(attempt["task"], attempt["register"])] += 1
                 running[pool.submit(run_attempt, attempt_id, attempt)] = attempt_id

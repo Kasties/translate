@@ -54,6 +54,23 @@ generator:
   vllm_args: []  # extra `vllm serve` flags
   llamacpp_env: {}  # extra env for scripts/serve-local.sh, e.g. {S2S_GGUF: /models/x.gguf}
 
+# An independent reviewer for datagen.mode: instructions: it does the semantic review and the
+# instruction judge (datagen.overrides.instruction_data.instruction_judge). null = the generator
+# reviews its own drafts. Started next to the generator, so the two must share the GPU: set both
+# gpu_memory_utilization values (and e.g. generator.vllm_args: [--quantization, fp8]).
+reviewer:
+  model: null  # e.g. Qwen/Qwen3.8-27B-FP8
+  revision: null
+  backend: vllm  # vllm | external
+  endpoint: null  # external only: an already running OpenAI-compatible /v1 URL
+  port: 8081
+  max_parallel_requests: 16
+  max_model_len: 8192
+  gpu_memory_utilization: 0.40
+  language_model_only: auto
+  extra_body: {}  # merged into every request, e.g. {chat_template_kwargs: {enable_thinking: false}}
+  vllm_args: []
+
 datagen:
   mode: nlu  # instructions = register/native-target mix; nlu = legacy task-only build
   config: configs/source2synth.yaml
