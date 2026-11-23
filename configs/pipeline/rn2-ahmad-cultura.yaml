@@ -1,0 +1,33 @@
+# rn2 source ablation: Ahmad's CulturaX part
+# Same setup as rn2-hplt (Gemma 4 31B FP8 generates, Qwen 3.8 27B reviews, 125k supervised tokens),
+# with this single seed source instead of the HPLT news/forum/web mix. Run with scripts/run_rn2_sources.sh.
+data:
+  source: registers
+generator:
+  model: google/gemma-4-31B-it
+  revision: 842da3794eaa0b77d5f08bae87a17459d91ff475
+  gpu_memory_utilization: 0.52
+  vllm_args: [--quantization, fp8]
+reviewer:
+  model: Qwen/Qwen3.8-27B-FP8
+  revision: c3a462cc3d38cf351f3b26cbd763469eeb74ef81
+  port: 8091  # 8081 is taken on this machine
+  gpu_memory_utilization: 0.40
+  extra_body: {chat_template_kwargs: {enable_thinking: false}}
+datagen:
+  mode: instructions
+  target: 1500  # more than 125k supervised tokens need; the subset is what gets trained on
+  batch_size: 25
+  max_batches: 100
+  require_complete: true
+  overrides:
+    registers:
+      sources:
+        - {name: rn2-ahmad-cultura, namespace: rn2-ahmad-cultura, kind: local, register: cultura, era: contemporary,
+           path: artifacts/seeds/ahmad/only_cultura_16MB/only_cultura_16MB.jsonl, max_documents: 5000, coherent: true, fields: {id: doc_id},
+           license: "CulturaX (mC4 ODC-By-1.0 / OSCAR CC0-1.0)", license_url: "https://huggingface.co/datasets/uonlp/CulturaX"}
+    instruction_data:
+      # Overrides merge into the defaults, so the Korp registers need an explicit 0.
+      register_weights: {cultura: 1, debate: 0, encyclopedia: 0, job-ad: 0}
+sft:
+  train_file: artifacts/subsets/rn2-ahmad-cultura/rn2-ahmad-cultura-125k.jsonl

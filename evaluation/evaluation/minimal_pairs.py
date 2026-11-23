@@ -145,8 +145,9 @@ def score_sentences(model, tokenizer, sentences):
     """Return (summed log-probability, token count) per sentence.
 
     Every token is scored given the tokens before it, so the first token is scored only
-    when the tokenizer adds a BOS token in front of it. Padding is masked. Surrounding
-    whitespace is stripped, as in the paper's code.
+    when there is a BOS token in front of it. A tokenizer that defines a BOS token but does
+    not add it (gemma-4-31B-it) gets it prepended here; Gemma models score at chance without
+    it. Padding is masked. Surrounding whitespace is stripped, as in the paper's code.
     """
     sentences = [sentence.strip() for sentence in sentences]
     scores = []
@@ -157,10 +158,16 @@ def score_sentences(model, tokenizer, sentences):
             padding=True,
             padding_side="right",
         ).to(model.device)
-        logits = model(input_ids=batch.input_ids, attention_mask=batch.attention_mask).logits
+        input_ids, attention_mask = batch.input_ids, batch.attention_mask
+        bos = tokenizer.bos_token_id
+        if bos is not None and not (input_ids[:, 0] == bos).all():
+            column = torch.full_like(input_ids[:, :1], bos)
+            input_ids = torch.cat([column, input_ids], dim=1)
+            attention_mask = torch.cat([torch.ones_like(column), attention_mask], dim=1)
+        logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
         log_probs = logits[:, :-1].float().log_softmax(-1)
-        targets = batch.input_ids[:, 1:]
-        mask = batch.attention_mask[:, 1:]
+        targets = input_ids[:, 1:]
+        mask = attention_mask[:, 1:]
         token_log_probs = log_probs.gather(-1, targets.unsqueeze(-1)).squeeze(-1) * mask
         scores += zip(token_log_probs.sum(1).tolist(), mask.sum(1).tolist())
     return scores

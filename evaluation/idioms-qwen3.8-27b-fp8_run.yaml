@@ -1,0 +1,12 @@
+# Idioms only, full run: Qwen/Qwen3.8-27B-FP8 as is (no fine-tuning), the size of the generator/reviewer models.
+# Run with scripts/run_idioms_large.sh.
+full_run: true
+upload: true
+suites: [minimal-pair]
+minimal_pair_datasets: [Idioms]
+models:
+  - reference: Qwen/Qwen3.8-27B-FP8
+    revision: "c3a462cc3d38cf351f3b26cbd763469eeb74ef81"
+    model_family: Qwen/Qwen3.8-27B
+    training_data: none
+    training_method: none

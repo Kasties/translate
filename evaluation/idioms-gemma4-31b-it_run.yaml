@@ -1,0 +1,12 @@
+# Idioms only, full run: google/gemma-4-31B-it as is (no fine-tuning), the size of the generator/reviewer models.
+# Run with scripts/run_idioms_large.sh.
+full_run: true
+upload: true
+suites: [minimal-pair]
+minimal_pair_datasets: [Idioms]
+models:
+  - reference: google/gemma-4-31B-it
+    revision: "842da3794eaa0b77d5f08bae87a17459d91ff475"
+    model_family: google/gemma-4-31B
+    training_data: none
+    training_method: none
