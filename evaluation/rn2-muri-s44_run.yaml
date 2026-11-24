@@ -6,3 +6,4 @@ models:
     model_family: google/gemma-4-12B
     training_data: rn2-muri-s44
     training_method: lora
+    training_examples: 340

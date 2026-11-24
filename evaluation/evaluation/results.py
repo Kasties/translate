@@ -23,7 +23,8 @@ PAIR_SCORES = "pair_scores.jsonl"
 # The keys of match_keys in append_results: a pair score belongs to the result records that share them.
 MATCH_KEYS = ["checkpoint", "revision", "suite", "dataset", "timestamp"]
 # The fields of a model list entry. They tag the checkpoint's result records.
-MODEL_LIST_FIELDS = ["reference", "revision", "model_family", "training_data", "training_method"]
+# training_examples is the number of rows the checkpoint was trained on (the manifest's data.rows).
+MODEL_LIST_FIELDS = ["reference", "revision", "model_family", "training_data", "training_method", "training_examples"]
 SUITES = ["minimal-pair", "euroeval"]
 
 
@@ -89,6 +90,7 @@ def checkpoint_from_metadata(reference, revision=None):
         "model_family": metadata.get("base_model"),
         "training_data": metadata.get("training_data"),
         "training_method": metadata.get("training_method"),
+        "training_examples": metadata.get("training_examples"),
     }
 
 
@@ -109,6 +111,7 @@ def append_results(run_dir, checkpoint, suite, dataset, results, pair_scores, fu
             "model_family": checkpoint["model_family"],
             "training_data": checkpoint["training_data"],
             "training_method": checkpoint["training_method"],
+            "training_examples": checkpoint.get("training_examples"),
             **result,
             "run": "full" if full_run else "quick",
             "gpu": torch.cuda.get_device_name() if torch.cuda.is_available() else "cpu",
@@ -132,7 +135,7 @@ REPORTED_MINIMAL_PAIR_METRIC = "preference accuracy (mean)"
 METRIC_NAMES = {"mcc": "MCC", "macro_f1": "macro-F1", "chr_f3pp": "chrF3++", "chr_f4pp": "chrF4++", "f1": "F1", "em": "exact match"}
 # The columns of results_table.csv, one row per result record.
 CSV_FIELDS = [
-    "checkpoint", "revision", "model_family", "training_data", "training_method", "run", "suite", "dataset", "subset",
+    "checkpoint", "revision", "model_family", "training_data", "training_method", "training_examples", "run", "suite", "dataset", "subset",
     "metric", "value", "lower", "upper", "items", "gpu", "timestamp",
 ]  # fmt: skip
 
@@ -204,6 +207,8 @@ def write_results_table(results_dir, include_quick_runs=False):
     label_rows = [
         ["Model family", *((examples[column]["model_family"] or "").split("/")[-1] for column in columns)],
         ["Training data", *((examples[column].get("training_data") or "") for column in columns)],
+        # Runs from before 2026-11-24 have no training_examples field.
+        ["Training examples", *(str(examples[column].get("training_examples") or "") for column in columns)],
     ]
     if include_quick_runs:
         label_rows.append(["Run", *(column[2] for column in columns)])

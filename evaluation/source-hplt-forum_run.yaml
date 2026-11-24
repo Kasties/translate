@@ -5,3 +5,4 @@ models:
     model_family: google/gemma-4-12B
     training_data: source-hplt-forum
     training_method: lora
+    training_examples: 1218

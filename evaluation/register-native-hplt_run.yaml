@@ -7,3 +7,4 @@ models:
     model_family: google/gemma-4-12B
     training_data: register-native (HPLT)
     training_method: lora
+    training_examples: 1235

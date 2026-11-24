@@ -1,4 +1,5 @@
-# rn2 source ablation: Ahmad's Riksdagen part
+# rn2 source ablation: Ahmad's Riksdagen part, each document split at sentence ends into ~250-word chunks
+# (artifacts/seeds/ahmad/riksdagen_chunks), since the pipeline takes one passage per document and 481 are too few.
 # Same setup as rn2-hplt (Gemma 4 31B FP8 generates, Qwen 3.8 27B reviews, 125k supervised tokens),
 # with this single seed source instead of the HPLT news/forum/web mix. Run with scripts/run_rn2_sources.sh.
 data:
@@ -24,7 +25,7 @@ datagen:
     registers:
       sources:
         - {name: rn2-ahmad-riksdagen, namespace: rn2-ahmad-riksdagen, kind: local, register: riksdagen, era: contemporary,
-           path: artifacts/seeds/ahmad/only_riksdagen_8MB/only_riksdagen_8MB.jsonl, max_documents: 5000, coherent: true, fields: {id: doc_id},
+           path: artifacts/seeds/ahmad/riksdagen_chunks/riksdagen_chunks.jsonl, max_documents: 5000, coherent: true, fields: {id: doc_id},
            license: "Riksdagens öppna data (public records)", license_url: "https://data.riksdagen.se/"}
     instruction_data:
       # Overrides merge into the defaults, so the Korp registers need an explicit 0.

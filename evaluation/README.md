@@ -91,6 +91,7 @@ The fields of an entry under `models` describe one checkpoint:
 | `reference` | the Hugging Face repo id or a local folder. Required |
 | `revision` | the commit hash, in quotes. Hugging Face repos only |
 | `model_family`, `training_data`, `training_method` | labels for the results table: the base model, the data it was fine-tuned on (seed-grounded, translated, MAGPIE or control), and full or lora |
+| `training_examples` | the number of rows the checkpoint was trained on, shown in the results table and the dashboard; optional |
 
 The command evaluates the checkpoints one after another, each as a run of its own, with the same suites and datasets.
 

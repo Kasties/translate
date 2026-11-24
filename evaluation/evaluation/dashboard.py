@@ -48,6 +48,8 @@ if records.empty:
     st.error(f"No result records in {RESULTS_DIR / 'runs'}.")
     st.stop()
 
+# Runs from before 2026-11-24 have no training_examples field.
+records["training_examples"] = records.get("training_examples", pd.Series(pd.NA, index=records.index)).astype("Int64")
 # A checkpoint without checkpoint metadata is a base model, and its own model family.
 records["model_family"] = records["model_family"].fillna(records["checkpoint"])
 # Runs from before 2026-10-02 call the field condition.
@@ -107,7 +109,7 @@ for index, ((dataset, subset, metric), group) in enumerate(groups):
     # Horizontal bars, so long checkpoint references stay readable.
     bars = alt.Chart(group, title=title).encode(
         y=alt.Y("label:N", sort=list(group["label"]), title=None, axis=alt.Axis(labelLimit=320)),
-        tooltip=["label", "model_family", "training_data", "value (percent)", "lower (percent)",
+        tooltip=["label", "model_family", "training_data", "training_examples", "value (percent)", "lower (percent)",
                  "upper (percent)", "items", "gpu"],
     )  # fmt: skip
     present = [kind for kind in kinds if kind in set(group["training_data"])]
@@ -140,7 +142,7 @@ for index, ((dataset, subset, metric), group) in enumerate(groups):
 st.caption("The error bar on each bar is its 95% confidence interval, when the result record has one.")
 st.dataframe(
     shown[
-        ["label", "model_family", "training_data", "suite", "dataset", "subset", "metric",
+        ["label", "model_family", "training_data", "training_examples", "suite", "dataset", "subset", "metric",
          "value (percent)", "lower (percent)", "upper (percent)", "items", "run", "gpu", "timestamp"]
     ].rename(columns={"label": "checkpoint"}),  # fmt: skip
     column_config={column: st.column_config.NumberColumn(format="%.2f") for column in
